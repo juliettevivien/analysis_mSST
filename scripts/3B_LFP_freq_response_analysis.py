@@ -82,25 +82,27 @@ All subjects with notes:
 def main_freq_response_LFP(
         included_subjects = [
             'sub006 DBS ON mSST',
+            'sub006 DBS OFF mSST',
             #'sub007 DBS OFF mSST',
             #'sub008 DBS ON mSST', 
             #'sub009 DBS OFF mSST', 
             #'sub009 DBS ON mSST',
-            #'sub011 DBS OFF mSST', 
-            #'sub011 DBS ON mSST',  
+            'sub011 DBS OFF mSST', 
+            'sub011 DBS ON mSST',  
             #'sub013 DBS OFF mSST', 
             #'sub014 DBS ON mSST', 
-            #'sub015 DBS OFF mSST', 
+            'sub015 DBS OFF mSST', 
             'sub015 DBS ON mSST', 
             #'sub017 DBS OFF mSST',
-            #'sub019 DBS OFF mSST', 
+            'sub019 DBS OFF mSST', 
+            'sub019 DBS ON mSST',
             #'sub020 DBS ON mSST', 
-            'sub021 DBS ON mSST', 
+            #'sub021 DBS ON mSST', 
             #'sub022 DBS ON mSST', 
             #'sub023 DBS OFF mSST', 
-            'sub023 DBS ON mSST'
+            #'sub023 DBS ON mSST'
             ],
-        INDIV_PLOTS = False,
+        INDIV_PLOTS = True,
         GROUP_PLOTS = True,
         ON_VS_OFF_PLOTS = False
 ):
@@ -263,9 +265,9 @@ def main_freq_response_LFP(
         """
         
         bands_of_interest = [
-            #'delta', 'theta', 'alpha', 
+            'delta', 'theta', 'alpha', 
             #'beta', 
-            'custom',
+            #'custom',
             #'low-beta'
              #'high-beta', 
             #'gamma', 'low-gamma', 'medium-gamma', 'high-gamma'
@@ -334,7 +336,7 @@ def main_freq_response_LFP(
                 )
         """
         for dbs_status in ['DBS ON', 
-                           #'DBS OFF'
+                           'DBS OFF'
                            ]:
             for freq_band in bands_of_interest:
                 condition = f"{dbs_status} - {freq_band} - GS_unsuccessful - GS_successful"

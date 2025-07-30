@@ -1548,10 +1548,75 @@ def tfr_pow_change_cond(
 
     print(f'Subs included in analyses: \n {subs_included}')
 
+    all_percentage_change_left = np.array(all_percentage_change_left)  # shape: (n sub, n freqs, n times)
+    all_percentage_change_right = np.array(all_percentage_change_right)
+    all_percentage_change_both = np.array(all_percentage_change_both)
+
+
     # Average the percentage signal changes across subjects for left STN and for right STN
     avg_percentage_change_left = np.nanmean(all_percentage_change_left, axis=0)
     avg_percentage_change_right = np.nanmean(all_percentage_change_right, axis=0)
     avg_percentage_change_both = np.nanmean(all_percentage_change_both, axis=0)
+
+    # ###################################################################################################################################
+    # # create a frequency mask for the frequencies of interest:
+    # delta_mask = (freqs >= 0) & (freqs <= 4)
+    # theta_mask = (freqs >= 4) & (freqs <= 8)
+    # alpha_mask = (freqs >= 8) & (freqs <= 12)
+    # beta_mask = (freqs >= 12) & (freqs <= 30)
+
+    # # subselect the frequencies of interest in all percentage change arrays and within a specific time range
+    # # (e.g., -500 to 1500ms)
+    # # Slicing the times to include only the t_min, t_max time range
+    # times = power_left.times * 1000  # Convert to milliseconds
+    # time_mask = (times >= -500) & (times <= 1500)
+    # # Select the time points of interest
+    # time_indices = np.where(time_mask)[0]
+    # # Select the frequencies of interest in the percentage change arrays
+    # avg_percentage_change_left_delta = avg_percentage_change_left[delta_mask, :][:, time_indices]
+    # avg_percentage_change_right_delta = avg_percentage_change_right[delta_mask, :][:, time_indices]
+    # avg_percentage_change_both_delta = avg_percentage_change_both[delta_mask, :][:, time_indices]
+    # avg_percentage_change_left_theta = avg_percentage_change_left[theta_mask, :][:, time_indices]
+    # avg_percentage_change_right_theta = avg_percentage_change_right[theta_mask, :][:, time_indices]
+    # avg_percentage_change_both_theta = avg_percentage_change_both[theta_mask, :][:, time_indices]
+    # avg_percentage_change_left_alpha = avg_percentage_change_left[alpha_mask, :][:, time_indices]
+    # avg_percentage_change_right_alpha = avg_percentage_change_right[alpha_mask, :][:, time_indices]
+    # avg_percentage_change_both_alpha = avg_percentage_change_both[alpha_mask, :][:, time_indices]
+    # avg_percentage_change_left_beta = avg_percentage_change_left[beta_mask, :][:, time_indices]
+    # avg_percentage_change_right_beta = avg_percentage_change_right[beta_mask, :][:, time_indices]
+    # avg_percentage_change_both_beta = avg_percentage_change_both[beta_mask, :][:, time_indices]
+
+    # # plot the delta, theta, alpha and beta frequency bands separately
+    # for band in ['delta', 'theta', 'alpha', 'beta']:
+    #     fig, (ax_left, ax_right, ax_both) = plt.subplots(1, 3, figsize=(20, 8))
+    #     ax_left.plot(times[time_indices], avg_percentage_change_left_delta if band == 'delta' else
+    #                 avg_percentage_change_left_theta if band == 'theta' else 
+    #                 avg_percentage_change_left_alpha if band == 'alpha' else
+    #                 avg_percentage_change_left_beta, label='Left STN')
+    #     ax_right.plot(times[time_indices], avg_percentage_change_right_delta if band == 'delta' else
+    #                 avg_percentage_change_right_theta if band == 'theta' else
+    #                 avg_percentage_change_right_alpha if band == 'alpha' else
+    #                 avg_percentage_change_right_beta, label='Right STN')
+    #     ax_both.plot(times[time_indices], avg_percentage_change_both_delta if band == 'delta' else
+    #                 avg_percentage_change_both_theta if band == 'theta' else
+    #                 avg_percentage_change_both_alpha if band == 'alpha' else
+    #                 avg_percentage_change_both_beta, label='Both STN')
+    #     ax_left.set_title(f"Left STN - {band.capitalize()}")
+    #     ax_right.set_title(f"Right STN - {band.capitalize()}")
+    #     ax_both.set_title(f"Both STN - {band.capitalize()}")
+    #     ax_left.set_xlabel("Time (ms)")
+    #     ax_right.set_xlabel("Time (ms)")
+    #     ax_both.set_xlabel("Time (ms)")
+    #     ax_left.set_ylabel("Percentage Change")
+    #     ax_right.set_ylabel("Percentage Change")
+    #     ax_both.set_ylabel("Percentage Change")
+    #     ax_left.legend()
+    #     ax_right.legend()
+    #     ax_both.legend()
+    #     plt.tight_layout()
+    #     plt.show()
+
+    # ################################################################################################################################
 
     # Slicing TFR data to include only the t_min, t_max time range
     time_indices = np.logical_and(times >= t_min_max[0], times <= t_min_max[1])
