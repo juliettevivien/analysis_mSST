@@ -10,6 +10,117 @@ import seaborn as sns
 from os.path import join
 import pandas as pd
 from collections import defaultdict
+from scipy.stats import wilcoxon, ttest_rel
+
+def add_significance_bars(ax, comparisons, positions_base, conditions, condition_colors, box_width):
+    """Add significance bars and p-values to the plot"""
+    
+    # Group comparisons by condition
+    condition_comparisons = {}
+    for comp in comparisons:
+        condition = comp['condition']
+        if condition not in condition_comparisons:
+            condition_comparisons[condition] = []
+        condition_comparisons[condition].append(comp)
+    
+    # Add significance bars for each condition
+    y_offset_base = ax.get_ylim()[1] * 0.08  # Start bars 8% above the highest point
+    
+    for cond_idx, condition in enumerate(conditions):
+        if condition not in condition_comparisons:
+            continue
+            
+        comps = condition_comparisons[condition]
+        color = condition_colors[condition]
+        
+        # Sort comparisons by block distance (closer blocks first) and filter significant ones
+        significant_comps = [comp for comp in comps if comp['p_value'] < 0.05]
+        significant_comps.sort(key=lambda x: abs(x['block2'] - x['block1']))
+        
+        for comp_idx, comp in enumerate(significant_comps):
+            block1, block2 = comp['block1'], comp['block2']
+            
+            # Calculate x positions for the bars
+            x1 = positions_base[block1] + (cond_idx - len(conditions)/2 + 0.5) * box_width
+            x2 = positions_base[block2] + (cond_idx - len(conditions)/2 + 0.5) * box_width
+            
+            # Calculate y position for this comparison bar - stack them based on block distance
+            block_distance = abs(block2 - block1)
+            y_pos = ax.get_ylim()[1] + y_offset_base * (1 + block_distance * 0.7) + (comp_idx * y_offset_base * 0.3)
+            
+            # Draw the significance bar
+            ax.plot([x1, x2], [y_pos, y_pos], color=color, linewidth=1.5, alpha=0.8)
+            ax.plot([x1, x1], [y_pos - y_offset_base*0.1, y_pos + y_offset_base*0.1], color=color, linewidth=1.5, alpha=0.8)
+            ax.plot([x2, x2], [y_pos - y_offset_base*0.1, y_pos + y_offset_base*0.1], color=color, linewidth=1.5, alpha=0.8)
+            
+            # Add p-value text
+            p_text = f"p={comp['p_value']:.3f}" if comp['p_value'] >= 0.001 else "p<0.001"
+            ax.text((x1 + x2) / 2, y_pos + y_offset_base*0.15, p_text, 
+                   ha='center', va='bottom', fontsize=7, color=color, weight='bold')
+
+
+
+
+def perform_block_comparisons(df_plot, condition):
+    """Perform pairwise comparisons between all blocks within a condition"""
+    comparisons = []
+    condition_data = df_plot[df_plot['Condition'] == condition]
+    
+    # Get unique participants for this condition
+    participants = condition_data['Participant'].unique()
+    
+    # Compare all blocks with all other blocks (0 vs 1, 0 vs 2, 0 vs 3, 1 vs 2, 1 vs 3, 2 vs 3)
+    all_block_pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+    
+    for block1, block2 in all_block_pairs:
+        # Get data for both blocks
+        block1_data = []
+        block2_data = []
+        
+        for participant in participants:
+            participant_data = condition_data[condition_data['Participant'] == participant]
+            
+            block1_values = participant_data[participant_data['Block_num'] == block1]['Preparation_Cost'].values
+            block2_values = participant_data[participant_data['Block_num'] == block2]['Preparation_Cost'].values
+            
+            if len(block1_values) > 0 and len(block2_values) > 0:
+                block1_data.append(block1_values[0])
+                block2_data.append(block2_values[0])
+        
+        # Perform statistical test if we have paired data
+        if len(block1_data) >= 2 and len(block2_data) >= 2 and len(block1_data) == len(block2_data):
+            try:
+                # Use Wilcoxon signed-rank test for paired data
+                statistic, p_value = wilcoxon(block1_data, block2_data)
+                
+                comparisons.append({
+                    'condition': condition,
+                    'comparison': f'Block {block1} vs Block {block2}',
+                    'block1': block1,
+                    'block2': block2,
+                    'n_pairs': len(block1_data),
+                    'statistic': statistic,
+                    'p_value': p_value,
+                    'significant': p_value < 0.05
+                })
+            except:
+                # If Wilcoxon fails, use paired t-test
+                try:
+                    statistic, p_value = ttest_rel(block1_data, block2_data)
+                    comparisons.append({
+                        'condition': condition,
+                        'comparison': f'Block {block1} vs Block {block2}',
+                        'block1': block1,
+                        'block2': block2,
+                        'n_pairs': len(block1_data),
+                        'statistic': statistic,
+                        'p_value': p_value,
+                        'significant': p_value < 0.05
+                    })
+                except:
+                    pass
+    
+    return comparisons
 
 
 def create_inhibition_df(
@@ -308,6 +419,21 @@ def extract_stats(data):
 
         # also keep information about the block number:
         sub_dict['block number'] = df_maintask_copy['blocks.thisN'].tolist()
+
+        # calculate preparation cost mean GO RT - mean GF RT for each block:
+        all_prep_cost = []
+        for block in df_maintask_copy['blocks.thisN'].unique():
+            block_df = df_maintask_copy[df_maintask_copy['blocks.thisN'] == block]
+            go_RTs = (block_df[block_df['trial_type'] == 'go_trial']['key_resp_experiment.rt'].dropna() * 1000).tolist()
+            gf_RTs = (block_df[block_df['trial_type'] == 'go_fast_trial']['key_resp_experiment.rt'].dropna() * 1000).tolist()
+            if go_RTs and gf_RTs:
+                mean_go_RT = np.nanmean(go_RTs)
+                mean_gf_RT = np.nanmean(gf_RTs)
+                prep_cost = mean_go_RT - mean_gf_RT
+            else:
+                prep_cost = None
+            all_prep_cost.append(prep_cost)
+        sub_dict['all preparation costs (ms)'] = all_prep_cost
         
         stats[subject] = sub_dict
             

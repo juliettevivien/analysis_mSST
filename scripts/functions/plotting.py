@@ -6,8 +6,725 @@ import seaborn as sns
 import numpy as np
 import json
 from os.path import join
+from collections import defaultdict
+from matplotlib.patches import Patch
 
 from functions import utils
+
+
+def whisker_plot_prep_cost_per_block_per_session(
+    dict_prep_cost_per_session, color_dict, behav_results_saving_path,
+    save_as_pdf = False
+):    
+    # Create whisker plots (box plots) for preparation costs by block and SESSION
+    # Prepare data in long format using session-based grouping
+    plot_data_session = []
+
+    for condition, participants_data in dict_prep_cost_per_session.items():
+        for participant_idx, participant_blocks in enumerate(participants_data):
+            for block_idx, value in enumerate(participant_blocks):
+                plot_data_session.append({
+                    'Block': f'Block {block_idx}',
+                    'Block_num': block_idx,
+                    'Condition': condition,
+                    'Preparation_Cost': value,
+                    'Participant': f'{condition}_P{participant_idx+1}'
+                })
+
+    # Convert to DataFrame
+    df_plot_session = pd.DataFrame(plot_data_session)
+
+    # Set up the plot
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Get unique blocks and conditions
+    blocks = ['Block 0', 'Block 1', 'Block 2', 'Block 3']
+    session_conditions = ['control', 'preop', 'Session 1', 'Session 2']
+
+    # Define positions for box plots
+    n_blocks = len(blocks)
+    n_conditions = len(session_conditions)
+    box_width = 0.15
+    positions_base = np.arange(n_blocks)
+
+    # Create box plots for each condition
+    box_plots = []
+    for i, condition in enumerate(session_conditions):
+        # Get data for this condition across all blocks
+        condition_data = []
+        positions = []
+        
+        for j, block in enumerate(blocks):
+            block_data = df_plot_session[(df_plot_session['Block'] == block) & (df_plot_session['Condition'] == condition)]['Preparation_Cost'].values
+            if len(block_data) > 0:
+                condition_data.append(block_data)
+                positions.append(positions_base[j] + (i - n_conditions/2 + 0.5) * box_width)
+            else:
+                condition_data.append([])
+                positions.append(positions_base[j] + (i - n_conditions/2 + 0.5) * box_width)
+        
+        # Create box plots
+        bp = ax.boxplot(condition_data, 
+                        positions=positions,
+                        widths=box_width,
+                        patch_artist=True,
+                        notch=False,
+                        showfliers=True,
+                        boxprops=dict(facecolor=color_dict[condition], alpha=0.7),
+                        medianprops=dict(color='black', linewidth=2),
+                        whiskerprops=dict(color='black'),
+                        capprops=dict(color='black'),
+                        flierprops=dict(marker='o', markerfacecolor=color_dict[condition], 
+                                    markeredgecolor='black', markersize=6, alpha=0.8))
+        
+        box_plots.append(bp)
+
+    # Add individual data points with slight jitter
+    for i, condition in enumerate(session_conditions):
+        for j, block in enumerate(blocks):
+            block_data = df_plot_session[(df_plot_session['Block'] == block) & (df_plot_session['Condition'] == condition)]['Preparation_Cost'].values
+            if len(block_data) > 0:
+                x_pos = positions_base[j] + (i - n_conditions/2 + 0.5) * box_width
+                # Add jitter to x-coordinates
+                x_jitter = np.random.normal(x_pos, box_width/8, len(block_data))
+                ax.scatter(x_jitter, block_data, 
+                        color='black', 
+                        alpha=0.6, 
+                        s=25, 
+                        zorder=3)
+
+    # Customize the plot
+    ax.set_xlabel('Block Number', fontsize=14)
+    ax.set_ylabel('Preparation Cost (ms)', fontsize=14)
+    ax.set_title('Preparation Cost Distribution by Block and Session (Whisker Plots)', fontsize=16)
+    ax.set_xticks(positions_base)
+    ax.set_xticklabels(blocks)
+
+    # Add horizontal line at y=0
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+
+    # Create custom legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=color_dict[condition], 
+                            edgecolor='black',
+                            alpha=0.7,
+                            label=condition) 
+                    for condition in session_conditions]
+    ax.legend(handles=legend_elements, title='Condition', fontsize=12, title_fontsize=13)
+
+    # Add grid for better readability
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Perform comparisons for all session conditions
+    all_comparisons_session = []
+    for condition in session_conditions:
+        comparisons = utils.perform_block_comparisons(df_plot_session, condition)
+        all_comparisons_session.extend(comparisons)
+
+    # Add significance bars to the plot
+    utils.add_significance_bars(ax, all_comparisons_session, positions_base, session_conditions, color_dict, box_width)
+
+    # Adjust y-limits to accommodate significance bars
+    if all_comparisons_session:
+        max_y = ax.get_ylim()[1]
+        n_sig_comparisons = sum(1 for comp in all_comparisons_session if comp['p_value'] < 0.05)
+        if n_sig_comparisons > 0:
+            # Increase y-limit more to accommodate all the additional comparison bars
+            ax.set_ylim(ax.get_ylim()[0], max_y * 1.4)
+
+    plt.tight_layout()
+    if save_as_pdf:
+        plt.savefig(join(behav_results_saving_path, 'whisker_plot_prep_cost_per_block_per_session.pdf'), dpi=300, format='pdf')
+    else:
+        plt.savefig(join(behav_results_saving_path, 'whisker_plot_prep_cost_per_block_per_session.png'), dpi=300, format='png')
+    plt.show()
+
+    # Print statistical results
+    print("\nStatistical Comparisons Within Each Session Condition:")
+    print("=" * 70)
+    for condition in session_conditions:
+        print(f"\n{condition.upper()}:")
+        condition_comparisons = [comp for comp in all_comparisons_session if comp['condition'] == condition]
+        
+        if not condition_comparisons:
+            print("  No valid comparisons (insufficient paired data)")
+            continue
+            
+        for comp in condition_comparisons:
+            significance = "***" if comp['p_value'] < 0.001 else "**" if comp['p_value'] < 0.01 else "*" if comp['p_value'] < 0.05 else "ns"
+            print(f"  {comp['comparison']}: n={comp['n_pairs']}, "
+                f"statistic={comp['statistic']:.3f}, p={comp['p_value']:.3f} {significance}")
+
+    print("\nSignificance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant")
+    print("\nNote: These are uncorrected p-values. For multiple comparisons (6 per condition),")
+    print("consider applying corrections like Bonferroni (α = 0.05/6 = 0.0083) or FDR if needed.")
+
+    # Print summary of the box plot data
+    print("\nBox Plot Summary (Session-based):")
+    print("=" * 60)
+    for block in blocks:
+        print(f"\n{block}:")
+        block_data = df_plot_session[df_plot_session['Block'] == block]
+        for condition in session_conditions:
+            cond_data = block_data[block_data['Condition'] == condition]['Preparation_Cost'].values
+            if len(cond_data) > 0:
+                print(f"  {condition}: n={len(cond_data)}, "
+                    f"median={np.median(cond_data):.1f}, "
+                    f"Q1={np.percentile(cond_data, 25):.1f}, "
+                    f"Q3={np.percentile(cond_data, 75):.1f}, "
+                    f"range=[{np.min(cond_data):.1f}, {np.max(cond_data):.1f}]")
+            else:
+                print(f"  {condition}: no data")
+
+
+def whisker_plot_prep_cost_per_block_per_condition(
+    dict_prep_cost_per_cond, color_dict, behav_results_saving_path,
+    save_as_pdf = False
+):
+    # Create whisker plots (box plots) for preparation costs by block and condition
+    # Prepare data in long format for easier plotting with seaborn/matplotlib
+    plot_data = []
+
+    for condition, participants_data in dict_prep_cost_per_cond.items():
+        for participant_idx, participant_blocks in enumerate(participants_data):
+            for block_idx, value in enumerate(participant_blocks):
+                plot_data.append({
+                    'Block': f'Block {block_idx}',
+                    'Block_num': block_idx,
+                    'Condition': condition,
+                    'Preparation_Cost': value,
+                    'Participant': f'{condition}_P{participant_idx+1}'
+                })
+
+    # Convert to DataFrame
+    df_plot = pd.DataFrame(plot_data)
+
+    # Set up the plot
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Get unique blocks and conditions
+    blocks = ['Block 0', 'Block 1', 'Block 2', 'Block 3']
+    conditions = ['control', 'preop', 'DBS OFF', 'DBS ON']
+
+    # Define positions for box plots
+    n_blocks = len(blocks)
+    n_conditions = len(conditions)
+    box_width = 0.15
+    positions_base = np.arange(n_blocks)
+
+    # Define colors for each condition
+    condition_colors = {
+        'control': color_dict['control'],
+        'preop': color_dict['preop'], 
+        'DBS OFF': color_dict['DBS OFF'],
+        'DBS ON': color_dict['DBS ON']
+    }
+
+    # Create box plots for each condition
+    box_plots = []
+    for i, condition in enumerate(conditions):
+        # Get data for this condition across all blocks
+        condition_data = []
+        positions = []
+        
+        for j, block in enumerate(blocks):
+            block_data = df_plot[(df_plot['Block'] == block) & (df_plot['Condition'] == condition)]['Preparation_Cost'].values
+            if len(block_data) > 0:
+                condition_data.append(block_data)
+                positions.append(positions_base[j] + (i - n_conditions/2 + 0.5) * box_width)
+            else:
+                condition_data.append([])
+                positions.append(positions_base[j] + (i - n_conditions/2 + 0.5) * box_width)
+        
+        # Create box plots
+        bp = ax.boxplot(condition_data, 
+                        positions=positions,
+                        widths=box_width,
+                        patch_artist=True,
+                        notch=False,
+                        showfliers=True,
+                        boxprops=dict(facecolor=condition_colors[condition], alpha=0.7),
+                        medianprops=dict(color='black', linewidth=2),
+                        whiskerprops=dict(color='black'),
+                        capprops=dict(color='black'),
+                        flierprops=dict(marker='o', markerfacecolor=condition_colors[condition], 
+                                    markeredgecolor='black', markersize=6, alpha=0.8))
+        box_plots.append(bp)
+
+    # Add individual data points with slight jitter
+    for i, condition in enumerate(conditions):
+        for j, block in enumerate(blocks):
+            block_data = df_plot[(df_plot['Block'] == block) & (df_plot['Condition'] == condition)]['Preparation_Cost'].values
+            if len(block_data) > 0:
+                x_pos = positions_base[j] + (i - n_conditions/2 + 0.5) * box_width
+                # Add jitter to x-coordinates
+                x_jitter = np.random.normal(x_pos, box_width/8, len(block_data))
+                ax.scatter(x_jitter, block_data, 
+                        color='black', 
+                        alpha=0.6, 
+                        s=25, 
+                        zorder=3)
+
+    # Customize the plot
+    ax.set_xlabel('Blocks', fontsize=14)
+    ax.set_ylabel('Preparation Cost (ms)', fontsize=14)
+    ax.set_title('Median Preparation Cost Distribution by Block and Condition (Whisker Plots)', fontsize=16)
+    ax.set_xticks(positions_base)
+    ax.set_xticklabels([f'Block {i+1}' for i in range(n_blocks)])
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+
+    # Create custom legend
+    legend_elements = [Patch(facecolor=condition_colors[condition], 
+                            edgecolor='black',
+                            alpha=0.7,
+                            label=condition.upper()) 
+                    for condition in conditions]
+    ax.legend(handles=legend_elements, title='Condition', fontsize=12, title_fontsize=13)
+
+    # Add grid for better readability
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # Perform statistical tests within each condition across blocks
+    # Perform comparisons for all conditions
+    all_comparisons = []
+    for condition in conditions:
+        comparisons = utils.perform_block_comparisons(df_plot, condition)
+        all_comparisons.extend(comparisons)
+
+    # Add significance bars to the plot
+    utils.add_significance_bars(ax, all_comparisons, positions_base, conditions, condition_colors, box_width)
+
+    # Adjust y-limits to accommodate significance bars
+    if all_comparisons:
+        max_y = ax.get_ylim()[1]
+        n_sig_comparisons = sum(1 for comp in all_comparisons if comp['p_value'] < 0.05)
+        if n_sig_comparisons > 0:
+            # Increase y-limit more to accommodate all the additional comparison bars
+            ax.set_ylim(ax.get_ylim()[0], max_y * 1.4)
+
+    plt.tight_layout()
+    if save_as_pdf:
+        plt.savefig(join(behav_results_saving_path, 'whisker_plot_prep_cost_per_block_per_condition.pdf'), dpi=300, format='pdf')
+    else:
+        plt.savefig(join(behav_results_saving_path, 'whisker_plot_prep_cost_per_block_per_condition.png'), dpi=300, format='png')
+    plt.show()
+
+    # Print statistical results
+    print("\nStatistical Comparisons Within Each Condition:")
+    print("=" * 70)
+    for condition in conditions:
+        print(f"\n{condition.upper()}:")
+        condition_comparisons = [comp for comp in all_comparisons if comp['condition'] == condition]
+        
+        if not condition_comparisons:
+            print("  No valid comparisons (insufficient paired data)")
+            continue
+            
+        for comp in condition_comparisons:
+            significance = "***" if comp['p_value'] < 0.001 else "**" if comp['p_value'] < 0.01 else "*" if comp['p_value'] < 0.05 else "ns"
+            print(f"  {comp['comparison']}: n={comp['n_pairs']}, "
+                f"statistic={comp['statistic']:.3f}, p={comp['p_value']:.3f} {significance}")
+
+    print("\nSignificance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant")
+    print("\nNote: These are uncorrected p-values. For multiple comparisons (6 per condition),")
+    print("consider applying corrections like Bonferroni (α = 0.05/6 = 0.0083) or FDR if needed.")
+
+    # Print summary of the box plot data
+    print("\nBox Plot Summary:")
+    print("=" * 60)
+    for block in blocks:
+        print(f"\n{block}:")
+        block_data = df_plot[df_plot['Block'] == block]
+        for condition in conditions:
+            cond_data = block_data[block_data['Condition'] == condition]['Preparation_Cost'].values
+            if len(cond_data) > 0:
+                print(f"  {condition}: n={len(cond_data)}, "
+                    f"median={np.median(cond_data):.1f}, "
+                    f"Q1={np.percentile(cond_data, 25):.1f}, "
+                    f"Q3={np.percentile(cond_data, 75):.1f}, "
+                    f"range=[{np.min(cond_data):.1f}, {np.max(cond_data):.1f}]")
+            else:
+                print(f"  {condition}: no data")
+
+
+
+def bar_plot_prep_cost_per_block_per_condition(
+    dict_prep_cost_per_cond, color_dict, behav_results_saving_path,
+    save_as_pdf = False
+    ):
+
+    # Create bar plot for preparation costs by block and condition
+    # Reorganize data: for each block, collect all values from all participants for each condition
+    blocks_data = defaultdict(lambda: defaultdict(list))
+
+    # Extract data for each block and condition
+    for condition, participants_data in dict_prep_cost_per_cond.items():
+        for participant_blocks in participants_data:
+            for block_idx, value in enumerate(participant_blocks):
+                blocks_data[block_idx][condition].append(value)
+
+    # Calculate means and standard errors for each block and condition
+    block_means = defaultdict(dict)
+    block_sems = defaultdict(dict)
+
+    for block_idx in range(4):  # blocks 0, 1, 2, 3
+        for condition in ['control', 'preop', 'DBS OFF', 'DBS ON']:
+            if condition in blocks_data[block_idx] and len(blocks_data[block_idx][condition]) > 0:
+                values = np.array(blocks_data[block_idx][condition])
+                block_means[block_idx][condition] = np.mean(values)
+                block_sems[block_idx][condition] = np.std(values) / np.sqrt(len(values))
+            else:
+                block_means[block_idx][condition] = 0  # or np.nan if you prefer
+                block_sems[block_idx][condition] = 0
+
+    # Set up the plot
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    # Define positions and width
+    n_blocks = 4
+    n_conditions = 4
+    bar_width = 0.2
+    positions = np.arange(n_blocks)
+
+    conditions = ['control', 'preop', 'DBS OFF', 'DBS ON']
+
+    # Create bars for each condition
+    for i, condition in enumerate(conditions):
+        means = [block_means[block][condition] for block in range(n_blocks)]
+        sems = [block_sems[block][condition] for block in range(n_blocks)]
+        
+        x_pos = positions + i * bar_width - (n_conditions * bar_width - bar_width) / 2
+        
+        bars = ax.bar(x_pos, means, bar_width, 
+                    label=condition.upper(), 
+                    color=color_dict[condition],
+                    alpha=0.8,
+                    yerr=sems,
+                    capsize=3)
+        
+        # Add individual data points
+        for block_idx in range(n_blocks):
+            if condition in blocks_data[block_idx] and len(blocks_data[block_idx][condition]) > 0:
+                y_values = blocks_data[block_idx][condition]
+                x_values = [x_pos[block_idx]] * len(y_values)
+                # Add some jitter to x-coordinates for better visibility
+                x_jitter = x_values + np.random.normal(0, bar_width/8, len(x_values))
+                ax.scatter(x_jitter, y_values, 
+                        color='black', 
+                        alpha=0.6, 
+                        s=30, 
+                        zorder=3)
+
+    # Customize the plot
+    ax.set_xlabel('Blocks', fontsize=14)
+    ax.set_ylabel('Preparation Cost (ms)', fontsize=14)
+    ax.set_title('Mean Preparation Cost by Block and Condition', fontsize=16)
+    ax.set_xticks(positions)
+    ax.set_xticklabels([f'Block {i+1}' for i in range(n_blocks)])
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.7)
+    ax.legend(title='Condition', fontsize=12, title_fontsize=13)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    if save_as_pdf:
+        plt.savefig(join(behav_results_saving_path, 'bar_plot_prep_cost_per_block_per_condition.pdf'), dpi=300, format='pdf')
+    else:
+        plt.savefig(join(behav_results_saving_path, 'bar_plot_prep_cost_per_block_per_condition.png'), dpi=300, format='png')
+
+
+
+
+
+def plot_prep_cost_per_block_per_session_order(
+    included_subjects, stats, subject_colors, session_dict, behav_results_saving_path, 
+    color_dict, with_average_plot = True, save_as_pdf=True    
+):
+    fig, ax = plt.subplots(ncols=4, figsize=(10, 6))
+    all_sub_all_prep_costs = []
+    dict_prep_cost_per_session = {'control': [], 'preop': [], 'Session 1': [], 'Session 2': []}
+    dict_mean_prep_cost_per_session = {'control': [], 'preop': [], 'Session 1': [], 'Session 2': []}
+
+    for sub in included_subjects:
+        if 'C' in sub:
+            ax_n = 0
+            dict_key = 'control'
+        elif 'preop' in sub:
+            ax_n = 1
+            dict_key = 'preop'
+        else:
+            # For DBS subjects, determine session from session_dict
+            # Remove ' mSST' from subject name to match session_dict keys
+            sub_key = sub.replace(' mSST', '')
+            session = session_dict.get(sub_key, None)
+            if session == 1:
+                ax_n = 2
+                dict_key = 'Session 1'
+            elif session == 2:
+                ax_n = 3
+                dict_key = 'Session 2'
+            else:
+                continue  # Skip if session not found
+        
+        blocks = set(stats[sub]['block number'])
+        all_sub_all_prep_costs.append(stats[sub]['all preparation costs (ms)'])
+        dict_prep_cost_per_session[dict_key].append(stats[sub]['all preparation costs (ms)'])
+        
+        # Use subject colors for individual lines, but modify based on session for DBS subjects
+        color = subject_colors[sub.split()[0]]
+        if 'DBS' in sub:
+            sub_key = sub.replace(' mSST', '')
+            session = session_dict.get(sub_key, None)
+            linestyle = 'solid' if session == 1 else 'dashed'
+        else:
+            linestyle = 'solid'
+        
+        ax[ax_n].plot(
+            stats[sub]['all preparation costs (ms)'], 
+            marker='o', linestyle=linestyle, label=sub, color=color
+            )
+        ax[ax_n].set_title(dict_key.upper())
+        #ax[ax_n].set_xticks(range(len(blocks)))
+        #ax[ax_n].set_xticklabels(list(blocks))
+        ax[ax_n].set_xlabel('Blocks', fontsize=12)
+        ax[ax_n].set_ylim(-100, 500)
+        ax[ax_n].axhline(0, color='gray', linestyle='--', linewidth=1)
+
+    # Compute average for each subplot
+    for group, ax_number in zip(dict_prep_cost_per_session.keys(), [0, 1, 2, 3]):
+        #if not dict_prep_cost_per_session[group]:  # Skip if no data
+        #    continue
+        block_0 = []
+        block_1 = []
+        block_2 = []
+        block_3 = []
+        
+        for n in dict_prep_cost_per_session[group]:
+            print(f"{group}: {n}")
+            block_0.append(n[0])
+            block_1.append(n[1])
+            block_2.append(n[2])
+            block_3.append(n[3]) if len(n) > 3 else None
+
+        block_0 = np.array(block_0)
+        block_1 = np.array(block_1)
+        block_2 = np.array(block_2)
+        block_3 = np.array(block_3)
+        # Fix the block_3 array filtering
+        #block_3_filtered = [x for x in block_3 if x is not None]
+        #block_3 = np.array(block_3_filtered) if block_3_filtered else np.array([])
+        block_0_mean = np.mean(block_0)
+        block_1_mean = np.mean(block_1) 
+        block_2_mean = np.mean(block_2)
+        block_3_mean = np.mean(block_3) if len(block_3) > 0 else None
+        ticks = [0, 1, 2, 3, 4] if len(block_3) > 0 else [0, 1, 2, 3]
+
+        dict_mean_prep_cost_per_session[group].append([block_0_mean, block_1_mean, block_2_mean, block_3_mean])
+
+        # Plot average line
+        x_vals = [0, 1, 2, 3]
+        y_vals = [block_0_mean, block_1_mean, block_2_mean, block_3_mean]
+        # if block_3_mean is not None:
+        #     x_vals.append(3)
+        #     y_vals.append(block_3_mean)
+        
+        ax[ax_number].plot(x_vals, y_vals, marker='s', color='black', linewidth=2, markersize=8, 
+                        label='Group Average', alpha=0.8)
+        ax[ax_number].set_xticklabels(ticks)
+        ax[ax_number].axhline(0, color='gray', linestyle='--', linewidth=1)
+
+    ax[0].set_ylabel('Mean Preparation Cost (ms)', fontsize=12)
+    fig.suptitle('Mean Preparation Cost per Block - Differentiated by Session', fontsize=16)
+
+    # Create custom legend
+    # legend_elements = []
+    # for group, color in session_colors.items():
+    #     legend_elements.append(plt.Line2D([0], [0], color=color, lw=2, label=group))
+
+    # fig.legend(handles=legend_elements, bbox_to_anchor=(1, 1), loc='upper left',
+    #            fontsize='small', title='Groups', title_fontsize='medium')
+    fig.legend(loc='upper left', fontsize='small', title='Subjects', title_fontsize='medium',
+            bbox_to_anchor=(1, 1),
+            #borderaxespad=0.5
+            )
+    fig.tight_layout()
+    fig_title = 'mean_prep_cost_per_block_all_subjects - diff by session order.pdf' if save_as_pdf else 'mean_prep_cost_per_block_all_subjects - diff by session order.png'
+    fig.savefig(
+        join(behav_results_saving_path, fig_title), 
+        dpi=300, bbox_inches='tight'
+        )
+    
+    if with_average_plot:
+        plt.figure(figsize=(10, 6))
+        for group in dict_mean_prep_cost_per_session.keys():
+            if dict_mean_prep_cost_per_session[group]:  # Only plot if data exists
+                y_values = dict_mean_prep_cost_per_session[group][0]
+                # Handle the case where block 3 might be None
+                x_values = list(range(len([y for y in y_values if y is not None])))
+                y_values_clean = [y for y in y_values if y is not None]
+                
+                plt.plot(x_values, y_values_clean, marker='o', label=group, 
+                        color=color_dict[group], linewidth=2, markersize=8)
+
+        plt.xlabel('Blocks', fontsize=12)
+        plt.ylabel('Mean Preparation Cost (ms)', fontsize=12)
+        plt.xticks([0, 1, 2, 3], ['1', '2', '3', '4'])
+        plt.title('Mean Preparation Cost per Block - Session Comparison')
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.grid(True, alpha=0.3)
+        plt.axhline(0, color='gray', linestyle='--', linewidth=1)
+        plt.tight_layout()
+        if save_as_pdf:
+            plt.savefig(join(behav_results_saving_path, 'average_prep_cost_per_block_all_sessions.pdf'), dpi=300)
+        else:
+            plt.savefig(join(behav_results_saving_path, 'average_prep_cost_per_block_all_sessions.png'), dpi=300)
+        plt.show()        
+
+    return dict_prep_cost_per_session
+
+def plot_prep_cost_per_block_per_DBS_group(
+    included_subjects, stats, subject_colors, behav_results_saving_path, 
+    color_dict, with_average_plot = True, save_as_pdf=True    
+):
+    fig, ax = plt.subplots(ncols = 4, figsize=(10, 6))
+    all_sub_all_prep_costs = []
+    dict_prep_cost_per_cond = {'control': [], 'preop': [], 'DBS OFF': [], 'DBS ON': []}
+    dict_mean_prep_cost_per_cond = {'control': [], 'preop': [], 'DBS OFF': [], 'DBS ON': []}
+
+    for sub in included_subjects:
+        if 'C' in sub:
+            ax_n = 0
+            dict_key = 'control'
+        elif 'preop' in sub:
+            ax_n = 1
+            dict_key = 'preop'
+        elif 'DBS OFF' in sub:
+            ax_n = 2
+            dict_key = 'DBS OFF'
+        else:
+            ax_n = 3
+            dict_key = 'DBS ON'
+        #blocks = set(stats[sub]['block number'])
+        all_sub_all_prep_costs.append(stats[sub]['all preparation costs (ms)'])
+        dict_prep_cost_per_cond[dict_key].append(stats[sub]['all preparation costs (ms)'])
+        color = subject_colors[sub.split()[0]]
+        linestyle = 'dotted' if 'DBS ON' in sub else 'solid'
+        ax[ax_n].plot(stats[sub]['all preparation costs (ms)'], marker='o', linestyle=linestyle, label=sub, color=color)
+        ax[ax_n].set_title(dict_key.upper())
+        #ax[ax_n].set_xticks(range(len(blocks)))    
+        ax[ax_n].set_xlabel('Blocks', fontsize=12)
+        ax[ax_n].set_ylim(-100, 500)
+
+    # compute average for each subplot
+    # calculate average preparation cost across all subjects
+    for group, ax_number in zip(dict_prep_cost_per_cond.keys(), [0,1,2,3]):
+        block_0 = []
+        block_1 = []
+        block_2 = []
+        block_3 = []
+        for n in dict_prep_cost_per_cond[group]:
+            block_0.append(n[0])
+            block_1.append(n[1])
+            block_2.append(n[2])
+            block_3.append(n[3]) if len(n) > 3 else None
+
+        block_0 = np.array(block_0)
+        block_1 = np.array(block_1)
+        block_2 = np.array(block_2)
+        block_3 = np.array(block_3)
+        block_0_mean = np.mean(block_0)
+        block_1_mean = np.mean(block_1) 
+        block_2_mean = np.mean(block_2)
+        block_3_mean = np.mean(block_3) if len(block_3) > 0 else None
+        ticks = [0, 1, 2, 3, 4] if len(block_3) > 0 else [0, 1, 2, 3]
+
+        dict_mean_prep_cost_per_cond[group].append([block_0_mean, block_1_mean, block_2_mean, block_3_mean])
+
+        ax[ax_number].plot(
+            [0, 1, 2, 3], 
+            [block_0_mean, block_1_mean, block_2_mean, block_3_mean], 
+            marker='s', color='black', label='Group Average', linewidth=2, 
+            markersize=8, alpha=0.8
+            )
+        ax[ax_number].set_xticklabels(ticks)
+        ax[ax_number].axhline(0, color='gray', linestyle='--', linewidth=1)
+
+    ax[0].set_ylabel('Mean Preparation Cost (ms)', fontsize=12)
+    fig.suptitle('Mean Preparation Cost per Block for All Subjects', fontsize=16)
+    fig.legend(bbox_to_anchor=(1, 1), loc='upper left'
+            , fontsize='small'
+            , title='Subjects', title_fontsize='medium')
+    fig.tight_layout()
+    fig_title = 'mean_prep_cost_per_block_all_subjects.pdf' if save_as_pdf else 'mean_prep_cost_per_block_all_subjects.png'
+    fig.savefig(
+        join(behav_results_saving_path, fig_title), 
+        dpi=300, bbox_inches='tight'
+        )
+    
+    if with_average_plot:
+        plt.figure(figsize=(10, 6))
+        for cond in dict_mean_prep_cost_per_cond.keys():
+            plt.plot(dict_mean_prep_cost_per_cond[cond][0], marker='o', label=cond.upper(), color=color_dict[cond])
+
+        plt.xlabel('Blocks', fontsize=12)
+        plt.ylabel('Mean Preparation Cost (ms)', fontsize=12)
+        plt.title('Mean Preparation Cost per Block for All Conditions', fontsize=16)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        plt.tight_layout()
+        plt.xticks([0, 1, 2, 3], ['1', '2', '3', '4'])
+        plt.axhline(0, color='gray', linestyle='--', linewidth=1)
+        if save_as_pdf:
+            plt.savefig(join(behav_results_saving_path, 'average_prep_cost_per_block_all_conditions.pdf'), dpi=300)
+        else:
+            plt.savefig(join(behav_results_saving_path, 'average_prep_cost_per_block_all_conditions.png'), dpi=300)
+        plt.show()    
+
+    return dict_prep_cost_per_cond
+
+
+def plot_all_sessions_prep_cost_across_blocks(
+        included_subjects, stats, subject_colors, behav_results_saving_path, save_as_pdf=False
+):
+    all_sub_all_prep_costs = []
+    for sub in included_subjects:
+        #blocks = set(stats[sub]['block number'])
+        all_sub_all_prep_costs.append(stats[sub]['all preparation costs (ms)'])
+        color = subject_colors[sub.split()[0]]
+        linestyle = 'dotted' if 'DBS ON' in sub else 'solid'
+        plt.plot(stats[sub]['all preparation costs (ms)'], marker='o', linestyle=linestyle, label=sub, color=color)
+    #plt.xlabel('Block Number')
+    plt.xticks([0, 1, 2, 3], ['Block 1', 'Block 2', 'Block 3', 'Block 4'])
+    plt.ylabel('Mean Preparation Cost (ms)')
+    plt.title('Mean Preparation Cost per Block for Each Subject')
+
+    # calculate average preparation cost across all subjects
+    block_0 = []
+    block_1 = []
+    block_2 = []
+    block_3 = []
+    for n in all_sub_all_prep_costs:
+        block_0.append(n[0])
+        block_1.append(n[1])
+        block_2.append(n[2])
+        block_3.append(n[3]) if len(n) > 3 else None
+
+    block_0 = np.array(block_0)
+    block_1 = np.array(block_1)
+    block_2 = np.array(block_2)
+    block_3 = np.array(block_3)
+    block_0_mean = np.mean(block_0)
+    block_1_mean = np.mean(block_1) 
+    block_2_mean = np.mean(block_2)
+    block_3_mean = np.mean(block_3) if len(block_3) > 0 else None
+
+    plt.plot([block_0_mean, block_1_mean, block_2_mean, block_3_mean], marker='o', color='black', label='Average across all subjects')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.axhline(0, color='gray', linestyle='--', linewidth=1)
+    if save_as_pdf:
+        plt.savefig(join(behav_results_saving_path, 'all_sessions_prep_cost_across_blocks.pdf'), dpi=300)
+    else:
+        plt.savefig(join(behav_results_saving_path, 'all_sessions_prep_cost_across_blocks.png'), dpi=300)
+    plt.show()
+
 
 
 def plot_reaction_time_relative_to_SSD(
