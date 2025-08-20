@@ -347,11 +347,12 @@ def extract_stats(data):
         for trial_type in df_maintask['trial_type'].unique():
             correct_trials += len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1) & (df_maintask['early_press_resp.corr'] == 0)])
             #print(subject, trial_type, 'correct :', len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1)]), '(', (len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1)])/len(df_maintask[df_maintask['trial_type'] == trial_type])*100), ')')
-            sub_dict['percent correct ' + trial_type] = (len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1) & (df_maintask['early_press_resp.corr'] == 0)])/len(df_maintask[df_maintask['trial_type'] == trial_type])*100)
+            sub_dict['percent correct all trials even early ' + trial_type] = (len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1) & (df_maintask['early_press_resp.corr'] == 0)])/len(df_maintask[df_maintask['trial_type'] == trial_type])*100)
             sub_dict['correct ' + trial_type] = len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1) & (df_maintask['early_press_resp.corr'] == 0)])
             sub_dict['incorrect early ' + trial_type] = len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['early_press_resp.corr'] == 1)])
             sub_dict['incorrect wrong ' + trial_type] = len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 0) & (df_maintask['early_press_resp.corr'] == 0)])
             sub_dict['total correct trials'] = correct_trials
+            sub_dict['percent correct ' + trial_type] = (len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['key_resp_experiment.corr'] == 1) & (df_maintask['early_press_resp.corr'] == 0)])/len(df_maintask[(df_maintask['trial_type'] == trial_type) & (df_maintask['early_press_resp.corr'] == 0)])*100)
 
         early_presses = len(df_maintask[df_maintask['early_press_resp.corr'] == 1])
         early_press_go = len(df_maintask[(df_maintask['early_press_resp.corr'] == 1) & (df_maintask['trial_type'] == 'go_trial')])
