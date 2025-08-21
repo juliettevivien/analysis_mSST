@@ -1978,10 +1978,14 @@ def plot_stft_stim(session_ID,
         for kj in np.array([0,1]):
                 ax2 = axes[kj].twinx() # make right axis linked to the left one
                 if kj == 1:
-                        stim_data = (raw.get_data(picks = stim)[0,:]) # define stim channel
+                        stim_data = raw.get_data(picks = raw.ch_names[stim])[0] # define stim channel
+                        stim_data = stim_data*1e6  # to get milliampers
+                        max_stim = np.nanmax(stim_data)
                 elif kj == 0:
-                        stim_data = (raw.get_data(picks = stim)[0,:])
-                
+                        stim_data = raw.get_data(picks = raw.ch_names[stim])[0]
+                        stim_data = stim_data*1e6
+                        max_stim = np.nanmax(stim_data)
+
                 #Plot STFT data
                 if kj == 0:
                         Pxx = np.abs(Zxx_left)
@@ -2013,7 +2017,7 @@ def plot_stft_stim(session_ID,
                         axes[ax_c].set_ylabel('Frequency [Hz]')
                 
                 axes[ax_c].set_xlabel('Time [sec]')
-                axes[ax_c].set_title(raw.ch_names[kj])
+                axes[ax_c].set_title(f'{raw.ch_names[kj]} \n {raw.ch_names[kj+4]} \n {max_stim}mA')
 
                 ax_c += 1
                 stim += 1

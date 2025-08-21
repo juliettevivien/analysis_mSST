@@ -16,13 +16,15 @@ from functions.io import save_epochs
 
 def create_epochs(
         file_to_epoch,
-        session_ID
+        session_ID,
+        keys_to_keep = ['GC', 'GF', 'GO', 'GS', 'continue', 'stop'],
+        tmin = -3.5,
+        tmax = 3.5,
+        baseline = None
+
 ):
     events, event_dict = mne.events_from_annotations(file_to_epoch)
-
-    # List of keys to keep
-    keys_to_keep = ['GC', 'GF', 'GO', 'GS', 'continue', 'stop']
-
+    
     # Create the new dictionary by filtering the original one
     filtered_event_dict = {key: event_dict[key] for key in keys_to_keep}
 
@@ -32,13 +34,9 @@ def create_epochs(
     # Filter the events array where the event code is in the valid_event_codes list
     filtered_events = np.array([event for event in events if event[2] in valid_event_codes])
 
-    tmin = -3.5 # previously -0.5
-    tmax = 3.5 # previously 1
-    #baseline=(-0.5, 0)
-    baseline = None
     epochs = mne.Epochs(file_to_epoch, filtered_events, event_id=filtered_event_dict, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
-    metadata = pd.DataFrame({'subject':[session_ID] * len(epochs)})
-    epochs.metadata = metadata
+    # metadata = pd.DataFrame({'subject':[session_ID] * len(epochs)})
+    # epochs.metadata = metadata
 
     return epochs, filtered_event_dict
 
