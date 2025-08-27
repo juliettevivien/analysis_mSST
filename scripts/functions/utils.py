@@ -12,6 +12,60 @@ import pandas as pd
 from collections import defaultdict
 from scipy.stats import wilcoxon, ttest_rel
 
+
+
+def compute_band_metrics(psd, freqs, bands=None):
+    """
+    Compute band-limited power (µV²) and RMS amplitude (µV) from PSD.
+    
+    Parameters
+    ----------
+    psd : ndarray, shape (..., n_freqs)
+        Power spectral density in V²/Hz.
+    freqs : ndarray, shape (n_freqs,)
+        Frequencies corresponding to the PSD.
+    bands : dict or None
+        Dictionary of band names and their frequency ranges in Hz.
+        Example: {'theta': (2,7), 'alpha': (8,12)}
+        
+    Returns
+    -------
+    results : dict
+        Dictionary with structure:
+        {
+          'theta': {'power_uV2': ..., 'rms_uV': ...},
+          'alpha': {'power_uV2': ..., 'rms_uV': ...},
+          ...
+        }
+    """
+    if bands is None:
+        bands = {
+            'theta': (2, 7),
+            'alpha': (8, 12),
+            'low-beta': (13, 19),
+            'high-beta': (20, 35)
+        }
+
+    results = {}
+    for name, (fmin, fmax) in bands.items():
+        mask = (freqs >= fmin) & (freqs <= fmax)
+        if not np.any(mask):
+            results[name] = {'power_uV2': np.nan, 'rms_uV': np.nan}
+            continue
+        
+        # Integrate PSD over the band (trapezoidal integration)
+        band_power_V2 = np.trapz(psd[..., mask], freqs[mask], axis=-1)
+        
+        # Convert to µV² and µV
+        band_power_uV2 = band_power_V2 * 1e12
+        band_rms_uV = np.sqrt(band_power_uV2)
+        
+        results[name] = {'power_uV2': band_power_uV2, 'rms_uV': band_rms_uV}
+
+    return results
+
+
+
 def add_significance_bars(ax, comparisons, positions_base, conditions, condition_colors, box_width):
     """Add significance bars and p-values to the plot"""
     
