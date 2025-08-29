@@ -12,6 +12,93 @@ from matplotlib.patches import Patch
 from functions import utils
 
 
+
+def plot_cumulative_rt_distributions(stats, trial_color_dict, saving_path):
+    for sub in stats.keys():
+        gf_rt = stats[sub]['go_fast_trial RTs (ms)']
+        sorted_gf_rt = np.sort(gf_rt)
+
+        go_rt = stats[sub]['go_trial RTs (ms)']
+        sorted_go_rt = np.sort(go_rt)
+
+        gc_rt = stats[sub]['go_continue_trial RTs (ms)']
+        sorted_gc_rt = np.sort(gc_rt)
+
+        gs_rt = stats[sub]['stop_trial RTs (ms)']
+        sorted_gs_rt = np.sort(gs_rt)
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(sorted_gf_rt, np.arange(1, len(sorted_gf_rt) + 1) / len(sorted_gf_rt), label='Go Fast Trials', color=trial_color_dict['go_fast_trial'])
+        plt.plot(sorted_go_rt, np.arange(1, len(sorted_go_rt) + 1) / len(sorted_go_rt), label='Go Trials', color=trial_color_dict['go_trial'])
+        plt.plot(sorted_gc_rt, np.arange(1, len(sorted_gc_rt) + 1) / len(sorted_gc_rt), label='Go Continue Trials', color=trial_color_dict['go_continue_trial'])
+        plt.plot(sorted_gs_rt, np.arange(1, len(sorted_gs_rt) + 1) / len(sorted_gs_rt), label='Stop Trials', color=trial_color_dict['stop_trial'])
+        plt.title(f'{sub} - Cumulative Proportion of Trial RTs')
+        plt.xlabel('Trial RTs (ms)')
+        plt.ylabel('Cumulative Proportion')
+        plt.legend()
+        plt.grid()
+        plt.savefig(join(saving_path, f'{sub}_cumulative_rt_distributions.png'))
+        plt.show()
+        
+
+def plot_cumulative_rt_distributions_across_groups(
+        group_values_OFF,
+        group_values_ON,
+        group_values_CONTROL,
+        group_values_PREOP,
+        trial_name,
+        color_dict,
+        saving_path
+        ):
+
+    sorted_rt_OFF = np.sort(group_values_OFF[trial_name])
+    sorted_rt_ON = np.sort(group_values_ON[trial_name])
+    sorted_rt_CONTROL = np.sort(group_values_CONTROL[trial_name])
+    sorted_rt_PREOP = np.sort(group_values_PREOP[trial_name])
+
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(sorted_rt_OFF, np.arange(1, len(sorted_rt_OFF) + 1) / len(sorted_rt_OFF), label='DBS OFF', color=color_dict['DBS OFF'])
+    plt.plot(sorted_rt_ON, np.arange(1, len(sorted_rt_ON) + 1) / len(sorted_rt_ON), label='DBS ON', color=color_dict['DBS ON'])
+    plt.plot(sorted_rt_CONTROL, np.arange(1, len(sorted_rt_CONTROL) + 1) / len(sorted_rt_CONTROL), label='CONTROL', color=color_dict['control'])
+    plt.plot(sorted_rt_PREOP, np.arange(1, len(sorted_rt_PREOP) + 1) / len(sorted_rt_PREOP), label='PREOP', color=color_dict['preop'])
+    plt.title(f'{trial_name} - Cumulative Proportion of Trial RTs')
+    plt.xlabel('Trial RTs (ms)')
+    plt.xlim(0, 1600)
+    plt.ylabel('Cumulative Proportion')
+    plt.legend()
+    plt.grid()
+    plt.savefig(join(saving_path, f'cumulative_rt_distributions_{trial_name}_across_groups.png'))
+    plt.show()
+
+
+def plot_cumulative_rt_distributions_group_average(
+        group_values,
+        group_name,
+        trial_color_dict,
+        saving_path
+        ):
+
+    sorted_gf_rt = np.sort(group_values['gf'])
+    sorted_go_rt = np.sort(group_values['go'])
+    sorted_gc_rt = np.sort(group_values['gc'])
+    sorted_gs_rt = np.sort(group_values['gs'])
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(sorted_gf_rt, np.arange(1, len(sorted_gf_rt) + 1) / len(sorted_gf_rt), label='Go Fast Trials', color=trial_color_dict['go_fast_trial'])
+    plt.plot(sorted_go_rt, np.arange(1, len(sorted_go_rt) + 1) / len(sorted_go_rt), label='Go Trials', color=trial_color_dict['go_trial'])
+    plt.plot(sorted_gc_rt, np.arange(1, len(sorted_gc_rt) + 1) / len(sorted_gc_rt), label='Go Continue Trials', color=trial_color_dict['go_continue_trial'])
+    plt.plot(sorted_gs_rt, np.arange(1, len(sorted_gs_rt) + 1) / len(sorted_gs_rt), label='Stop Trials', color=trial_color_dict['stop_trial'])
+    plt.title(f'{group_name} - Cumulative Proportion of Trial RTs')
+    plt.xlabel('Trial RTs (ms)')
+    plt.xlim(0, 1600)
+    plt.ylabel('Cumulative Proportion')
+    plt.legend()
+    plt.grid()
+    plt.savefig(join(saving_path, f'cumulative_rt_distributions_{group_name}.png'))
+    plt.show()
+
+
 def whisker_plot_prep_cost_per_block_per_session(
     dict_prep_cost_per_session, color_dict, behav_results_saving_path,
     save_as_pdf = False

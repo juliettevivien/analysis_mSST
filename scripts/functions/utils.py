@@ -13,6 +13,21 @@ from collections import defaultdict
 from scipy.stats import wilcoxon, ttest_rel
 
 
+def get_group_values_ecdf(stats):
+    group_values = defaultdict(list)
+    
+    for key, value in stats.items():
+        if 'go_fast_trial RTs (ms)' in value:
+            group_values['gf'].extend(value['go_fast_trial RTs (ms)'])
+        if 'stop_trial RTs (ms)' in value:
+            group_values['gs'].extend(value['stop_trial RTs (ms)'])
+        if 'go_trial RTs (ms)' in value:
+            group_values['go'].extend(value['go_trial RTs (ms)'])
+        if 'go_continue_trial RTs (ms)' in value:
+            group_values['gc'].extend(value['go_continue_trial RTs (ms)'])
+
+    return group_values
+
 
 def compute_band_metrics(psd, freqs, bands=None):
     """

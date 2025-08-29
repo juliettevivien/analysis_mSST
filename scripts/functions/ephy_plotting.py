@@ -12,14 +12,26 @@ import scipy
 import json
 from matplotlib.gridspec import GridSpec
 from os.path import join
-#from mne.stats import permutation_cluster_test
-
 from mne.baseline import rescale
 from mne.stats import bootstrap_confidence_interval
 import os
 from functions.utils import stat_fun
 from functions.stats_tests import perform_permutation_cluster_test
 from functions.analysis import compute_percent_change, identify_significant_clusters, get_change_from_baseline
+
+
+
+def get_rt_for_plot(data, cond):
+    if cond == 'stop_unsuccessful':
+        rt_col = data.metadata['key_resp_experiment.rt']
+        ssd_col = data.metadata['stop_signal_time']
+    elif cond == 'continue_successful':
+        rt_col = data.metadata['key_resp_experiment.rt']
+        ssd_col = data.metadata['continue_signal_time']
+    else:
+        rt_col = data.metadata['key_resp_experiment.rt']
+        ssd_col = None
+    return (rt_col - ssd_col).mean() * 1000 if ssd_col is not None else rt_col.mean() * 1000
 
 
 
@@ -34,13 +46,10 @@ def perc_pow_diff_on_off_contrast(
         saving_path: str = None,
         show_fig: bool = None,
         add_rt: bool = True,
+        add_ssd: bool = True,
         save_as: str = 'png'
         ):
-    
-    all_sub_RT_ON_cond1 = []
-    all_sub_RT_ON_cond2 = []
-    all_sub_RT_OFF_cond1 = []
-    all_sub_RT_OFF_cond2 = []
+
     all_diff_left = []
     all_diff_right = []
     all_diff_both = []
@@ -53,6 +62,40 @@ def perc_pow_diff_on_off_contrast(
 
     outcome1 = 1.0 if outcome_str1 == 'successful' else 0.0
     outcome2 = 1.0 if outcome_str2 == 'successful' else 0.0
+
+    if add_rt:
+        if cond1 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond1 = True
+            all_sub_RT_ON_cond1 = []
+            all_sub_RT_OFF_cond1 = []
+        else:
+            add_rt_cond1 = False
+        if cond2 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond2 = True
+            all_sub_RT_ON_cond2 = []
+            all_sub_RT_OFF_cond2 = []
+        else:
+            add_rt_cond2 = False
+    else: 
+        add_rt_cond1 = False
+        add_rt_cond2 = False        
+
+    if add_ssd:
+        if cond1 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond1 = True
+            all_sub_SSD_ON_cond1 = []
+            all_sub_SSD_OFF_cond1 = []
+        else: 
+            add_ssd_cond1 = False
+        if cond2 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond2 = True
+            all_sub_SSD_ON_cond2 = []
+            all_sub_SSD_OFF_cond2 = []
+        else: 
+            add_ssd_cond2 = False
+    else:
+        add_ssd_cond1 = False
+        add_ssd_cond2 = False
 
     # Collect epoch data for each condition
     for sub in sub_dict_ON_OFF.keys():
@@ -68,14 +111,34 @@ def perc_pow_diff_on_off_contrast(
                 outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
                 data_ON_cond2 = epochs[type_mask2 & outcome_mask2]
 
-                if not (cond1 == 'GS_successful' or cond1 == 'stop_successful'):
-                    RT_ON_cond1 = data_ON_cond1.metadata['key_resp_experiment.rt'].mean() * 1000
+                if add_rt_cond1:
+                    RT_ON_cond1 = get_rt_for_plot(data_ON_cond1, cond1)
                     all_sub_RT_ON_cond1.append(RT_ON_cond1)
-                    print(RT_ON_cond1)
-                if not (cond2 == 'GS_successful' or cond2 == 'stop_successful'):
-                    RT_ON_cond2 = data_ON_cond2.metadata['key_resp_experiment.rt'].mean() * 1000
+                    print(f'RT ON cond1: {RT_ON_cond1}')
+
+                if add_rt_cond2:
+                    RT_ON_cond2 = get_rt_for_plot(data_ON_cond2, cond2)
                     all_sub_RT_ON_cond2.append(RT_ON_cond2)
-                    print(RT_ON_cond2)
+                    print(f'RT ON cond2: {RT_ON_cond2}')
+
+                if add_ssd_cond1:
+                    if cond1 in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_ON_cond1 = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_ON_cond1.append(SSD_ON_cond1)
+                    print(f'SSD ON cond1: {SSD_ON_cond1}')
+
+                if add_ssd_cond2:
+                    if cond2 in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_ON_cond2 = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_ON_cond2.append(SSD_ON_cond2)
+                    print(f'SSD ON cond2: {SSD_ON_cond2}')
+
 
                 (percentage_change_left_ON_cond1, 
                  percentage_change_right_ON_cond1,
@@ -95,37 +158,6 @@ def perc_pow_diff_on_off_contrast(
                         baseline_correction = True
                     )
 
-                # left_epochs_ON_cond1, right_epochs_ON_cond1 = data_ON_cond1.copy().pick(['Left_STN']), data_ON_cond1.copy().pick(['Right_STN'])
-                # power_left_ON_cond1 = left_epochs_ON_cond1.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_ON_cond1 = right_epochs_ON_cond1.compute_tfr(**tfr_args)
-
-                # mean_power_left_ON_cond1 = np.nanmean(power_left_ON_cond1.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_ON_cond1 = np.nanmean(power_right_ON_cond1.data, axis=0).squeeze()
-                
-                # left_epochs_ON_cond2, right_epochs_ON_cond2 = data_ON_cond2.copy().pick(['Left_STN']), data_ON_cond2.copy().pick(['Right_STN'])
-                # power_left_ON_cond2 = left_epochs_ON_cond2.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_ON_cond2 = right_epochs_ON_cond2.compute_tfr(**tfr_args)
-
-                # mean_power_left_ON_cond2 = np.nanmean(power_left_ON_cond2.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_ON_cond2 = np.nanmean(power_right_ON_cond2.data, axis=0).squeeze()
-
-                # times = power_left_ON_cond1.times * 1000
-                # freqs = power_left_ON_cond1.freqs
-
-                # # Define baseline period for percentage change calculation
-                # baseline_indices = (times >= -500) & (times <= -200)
-
-                # # Percentage change for condition 1
-                # baseline_power_left_ON_cond1 = np.nanmean(mean_power_left_ON_cond1[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_left_ON_cond1 = (mean_power_left_ON_cond1 - baseline_power_left_ON_cond1) / baseline_power_left_ON_cond1 * 100
-                # baseline_power_right_ON_cond1 = np.nanmean(mean_power_right_ON_cond1[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_right_ON_cond1 = (mean_power_right_ON_cond1 - baseline_power_right_ON_cond1) / baseline_power_right_ON_cond1 * 100
-        
-                # baseline_power_left_ON_cond2 = np.nanmean(mean_power_left_ON_cond2[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_left_ON_cond2 = (mean_power_left_ON_cond2 - baseline_power_left_ON_cond2) / baseline_power_left_ON_cond2 * 100
-                # baseline_power_right_ON_cond2 = np.nanmean(mean_power_right_ON_cond2[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_right_ON_cond2 = (mean_power_right_ON_cond2 - baseline_power_right_ON_cond2) / baseline_power_right_ON_cond2 * 100
-        
                 percentage_change_left_ON_contrast = percentage_change_left_ON_cond1 - percentage_change_left_ON_cond2
                 percentage_change_right_ON_contrast = percentage_change_right_ON_cond1 - percentage_change_right_ON_cond2
 
@@ -138,14 +170,33 @@ def perc_pow_diff_on_off_contrast(
                 outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
                 data_OFF_cond2 = epochs[type_mask2 & outcome_mask2]          
 
-                if not (cond1 == 'GS_successful' or cond1 == 'stop_successful'):
-                    RT_OFF_cond1 = data_OFF_cond1.metadata['key_resp_experiment.rt'].mean() * 1000
+                if add_rt_cond1:
+                    RT_OFF_cond1 = get_rt_for_plot(data_OFF_cond1, cond1)
                     all_sub_RT_OFF_cond1.append(RT_OFF_cond1)
-                    print(RT_OFF_cond1)
+                    print(f'RT OFF cond1: {RT_OFF_cond1}')
 
-                if not (cond1 == 'GS_successful' or cond2 == 'stop_successful'):
-                    RT_OFF_cond2 = data_OFF_cond2.metadata['key_resp_experiment.rt'].mean() * 1000
+                if add_rt_cond2:
+                    RT_OFF_cond2 = get_rt_for_plot(data_OFF_cond2, cond2)
                     all_sub_RT_OFF_cond2.append(RT_OFF_cond2)
+                    print(f'RT OFF cond2: {RT_OFF_cond2}')
+
+                if add_ssd_cond1:
+                    if cond1 in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_OFF_cond1 = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_OFF_cond1.append(SSD_OFF_cond1)
+                    print(f'SSD OFF cond1: {SSD_OFF_cond1}')
+
+                if add_ssd_cond2:
+                    if cond2 in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_OFF_cond2 = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_OFF_cond2.append(SSD_OFF_cond2)
+                    print(f'SSD OFF cond2: {SSD_OFF_cond2}')
 
                 (percentage_change_left_OFF_cond1,
                 percentage_change_right_OFF_cond1,
@@ -165,43 +216,8 @@ def perc_pow_diff_on_off_contrast(
                         baseline_correction = True
                     )
 
-                # left_epochs_OFF_cond1, right_epochs_OFF_cond1 = data_OFF_cond1.copy().pick(['Left_STN']), data_OFF_cond1.copy().pick(['Right_STN'])
-                # power_left_OFF_cond1 = left_epochs_OFF_cond1.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_OFF_cond1 = right_epochs_OFF_cond1.compute_tfr(**tfr_args)
-
-                # mean_power_left_OFF_cond1 = np.nanmean(power_left_OFF_cond1.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_OFF_cond1 = np.nanmean(power_right_OFF_cond1.data, axis=0).squeeze()
-                
-                # left_epochs_OFF_cond2, right_epochs_OFF_cond2 = data_OFF_cond2.copy().pick(['Left_STN']), data_OFF_cond2.copy().pick(['Right_STN'])
-                # power_left_OFF_cond2 = left_epochs_OFF_cond2.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_OFF_cond2 = right_epochs_OFF_cond2.compute_tfr(**tfr_args)
-
-                # mean_power_left_OFF_cond2 = np.nanmean(power_left_OFF_cond2.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_OFF_cond2 = np.nanmean(power_right_OFF_cond2.data, axis=0).squeeze()
-
-                # times = power_left_OFF_cond1.times * 1000
-                # freqs = power_left_OFF_cond1.freqs
-
-                # # Define baseline period for percentage change calculation
-                # baseline_indices = (times >= -500) & (times <= -200)
-
-                # # Percentage change for condition 1
-                # baseline_power_left_OFF_cond1 = np.nanmean(mean_power_left_OFF_cond1[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_left_OFF_cond1 = (mean_power_left_OFF_cond1 - baseline_power_left_OFF_cond1) / baseline_power_left_OFF_cond1 * 100
-
-                # baseline_power_right_OFF_cond1 = np.nanmean(mean_power_right_OFF_cond1[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_right_OFF_cond1 = (mean_power_right_OFF_cond1 - baseline_power_right_OFF_cond1) / baseline_power_right_OFF_cond1 * 100
-        
-                # # Percentage change for condition 2
-                # baseline_power_left_OFF_cond2 = np.nanmean(mean_power_left_OFF_cond2[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_left_OFF_cond2 = (mean_power_left_OFF_cond2 - baseline_power_left_OFF_cond2) / baseline_power_left_OFF_cond2 * 100
-
-                # baseline_power_right_OFF_cond2 = np.nanmean(mean_power_right_OFF_cond2[:, baseline_indices], axis=1, keepdims=True)
-                # percentage_change_right_OFF_cond2 = (mean_power_right_OFF_cond2 - baseline_power_right_OFF_cond2) / baseline_power_right_OFF_cond2 * 100
-    
                 percentage_change_left_OFF_contrast = percentage_change_left_OFF_cond1 - percentage_change_left_OFF_cond2
                 percentage_change_right_OFF_contrast = percentage_change_right_OFF_cond1 - percentage_change_right_OFF_cond2
-
 
         diff_left = percentage_change_left_ON_contrast - percentage_change_left_OFF_contrast
         diff_right = percentage_change_right_ON_contrast - percentage_change_right_OFF_contrast
@@ -224,13 +240,19 @@ def perc_pow_diff_on_off_contrast(
     all_diff_both_array_sliced = all_diff_both_array[:,:,time_indices]
 
 
+    # Average the percentage signal changes across subjects for left STN and for right STN
+    avg_diff_left = np.nanmean(all_diff_left_array_sliced, axis=0)  # shape: (n freqs, n times)
+    avg_diff_right = np.nanmean(all_diff_right_array_sliced, axis=0)
+    avg_diff_both = np.nanmean(all_diff_both_array_sliced, axis=0)
+
+
     if len(subs_included) > 1:
         n_obs = all_diff_left_array.shape[0]
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        #threshold = None
+        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        threshold = None
         n_permutations = 1000
 
 
@@ -251,7 +273,8 @@ def perc_pow_diff_on_off_contrast(
             pval,
             tfr_args,
             condition,
-            'Left'
+            'Left',
+            saving_path
             )
         
         # Compute permutation cluster test for the right stn
@@ -271,7 +294,8 @@ def perc_pow_diff_on_off_contrast(
             pval,
             tfr_args,
             condition,
-            'Right'
+            'Right',
+            saving_path
             )
 
         # Compute permutation cluster test for the left + right stn
@@ -291,14 +315,9 @@ def perc_pow_diff_on_off_contrast(
             pval,
             tfr_args,
             condition,
-            'Both'
+            'Both',
+            saving_path
             )
-
-
-    # Average the percentage signal changes across subjects for left STN and for right STN
-    avg_diff_left = np.nanmean(all_diff_left_array_sliced, axis=0)  # shape: (n freqs, n times)
-    avg_diff_right = np.nanmean(all_diff_right_array_sliced, axis=0)
-    avg_diff_both = np.nanmean(all_diff_both_array_sliced, axis=0)
 
 
     ################
@@ -308,14 +327,10 @@ def perc_pow_diff_on_off_contrast(
     # Create a figure with two subplots for Left and Right STN
     fig, (ax_left, ax_right, ax_both) = plt.subplots(1, 3, figsize=(20, 8))
 
-    # Figure title for n_subjects
-    sub_num = len(all_diff_left)
-
-    if sub_num > 1:
-        fig.suptitle(f"Power difference DBS ON - DBS OFF {condition}, nSub = {sub_num}")
-    else:
-        fig.suptitle(f"Power difference DBS ON - DBS OFF {condition}, {subject[:6]}")
-
+    # Figure title
+    sub_num = len(subs_included)
+    subject_info = f"nSub = {sub_num}" if sub_num > 1 else subject[:6]
+    fig.suptitle(f"Power difference DBS ON - DBS OFF - {condition}, {subject_info}")
 
     # Plot the percentage change difference for Left STN
     im_left = ax_left.imshow(avg_diff_left, aspect='auto', origin='lower', 
@@ -344,10 +359,6 @@ def perc_pow_diff_on_off_contrast(
     ax_both.set_title(f'Left + Right STN - {condition}')
     fig.colorbar(im_both, ax=ax_both, label='Mean % Change (from baseline)')
 
-    print(f" {cond1} RT ON: {all_sub_RT_ON_cond1}")
-    print(f" {cond1} RT OFF: {all_sub_RT_OFF_cond1}")
-    print(f" {cond2} RT ON: {all_sub_RT_ON_cond2}")
-    print(f" {cond2} RT OFF: {all_sub_RT_OFF_cond2}")
 
     if len(subs_included) > 1:
         for c, p_val in zip(clusters_left, cluster_p_values_left):
@@ -373,38 +384,56 @@ def perc_pow_diff_on_off_contrast(
                 ax_both.contour(mask_R, levels=[0.5], colors='black', linewidths=1.5,
                                 extent=[t_min_max[0], t_min_max[-1], tfr_args["freqs"][0], tfr_args["freqs"][-1]])
         
-        mean_RT_ON_cond1 = np.mean(all_sub_RT_ON_cond1)
-        mean_RT_ON_cond2 = np.mean(all_sub_RT_ON_cond2)
-        mean_RT_OFF_cond1 = np.mean(all_sub_RT_OFF_cond1)
-        mean_RT_OFF_cond2 = np.mean(all_sub_RT_OFF_cond2)
-        #mean_SSD = np.mean(all_sub_SSD)
-        #mean_SSRT = np.mean(all_sub_SSRT)
+        if add_rt_cond1:
+            mean_RT_ON_cond1 = np.mean(all_sub_RT_ON_cond1)
+            mean_RT_OFF_cond1 = np.mean(all_sub_RT_OFF_cond1)
+        if add_rt_cond2:
+            mean_RT_ON_cond2 = np.mean(all_sub_RT_ON_cond2)    
+            mean_RT_OFF_cond2 = np.mean(all_sub_RT_OFF_cond2)
+        if add_ssd_cond1:
+            mean_SSD_ON_cond1 = np.mean(all_sub_SSD_ON_cond1)
+            mean_SSD_OFF_cond1 = np.mean(all_sub_SSD_OFF_cond1)
+        if add_ssd_cond2:
+            mean_SSD_ON_cond2 = np.mean(all_sub_SSD_ON_cond2)
+            mean_SSD_OFF_cond2 = np.mean(all_sub_SSD_OFF_cond2)
+        # mean_SSRT = np.mean(all_sub_SSRT)
     #else:
         # mean_RT_ON = all_sub_RT_ON[0]
         # mean_RT_OFF = all_sub_RT_OFF[0]
         #mean_SSD = all_sub_SSD[0]
         #mean_SSRT = all_sub_SSRT[0]
     
-    ax_left.axvline(mean_RT_ON_cond1, color='black', linestyle='--')
-    ax_right.axvline(mean_RT_ON_cond1, color='black', linestyle='--')
-    ax_both.axvline(mean_RT_ON_cond1, color='black', linestyle='--', label=f'Mean RT ON {cond1}')
-    ax_left.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--')
-    ax_right.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--')
-    ax_both.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--', label=f'Mean RT OFF {cond1}')
+    if add_rt_cond1:
+        ax_left.axvline(mean_RT_ON_cond1, color='black', linestyle='--')
+        ax_right.axvline(mean_RT_ON_cond1, color='black', linestyle='--')
+        ax_both.axvline(mean_RT_ON_cond1, color='black', linestyle='--', label=f'Mean RT ON {cond1}')
+        ax_left.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--')
+        ax_right.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--')
+        ax_both.axvline(mean_RT_OFF_cond1, color='grey', linestyle='--', label=f'Mean RT OFF {cond1}')
 
-    ax_left.axvline(mean_RT_ON_cond2, color='blue', linestyle='--')
-    ax_right.axvline(mean_RT_ON_cond2, color='blue', linestyle='--')
-    ax_both.axvline(mean_RT_ON_cond2, color='blue', linestyle='--', label=f'Mean RT ON {cond2}')
-    ax_left.axvline(mean_RT_OFF_cond2, color='green', linestyle='--')
-    ax_right.axvline(mean_RT_OFF_cond2, color='green', linestyle='--')
-    ax_both.axvline(mean_RT_OFF_cond2, color='green', linestyle='--', label=f'Mean RT OFF {cond2}')
+    if add_rt_cond2:
+        ax_left.axvline(mean_RT_ON_cond2, color='blue', linestyle='--')
+        ax_right.axvline(mean_RT_ON_cond2, color='blue', linestyle='--')
+        ax_both.axvline(mean_RT_ON_cond2, color='blue', linestyle='--', label=f'Mean RT ON {cond2}')
+        ax_left.axvline(mean_RT_OFF_cond2, color='green', linestyle='--')
+        ax_right.axvline(mean_RT_OFF_cond2, color='green', linestyle='--')
+        ax_both.axvline(mean_RT_OFF_cond2, color='green', linestyle='--', label=f'Mean RT OFF {cond2}')
 
-    #ax_left.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')
-    #ax_right.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')    
-    #ax_both.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')    
-    #ax_left.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')
-    #ax_right.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')
-    #ax_both.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')    
+    if add_ssd_cond1:
+        ax_left.axvline(mean_SSD_ON_cond1, color='black', linestyle='-')
+        ax_right.axvline(mean_SSD_ON_cond1, color='black', linestyle='-')
+        ax_both.axvline(mean_SSD_ON_cond1, color='black', linestyle='-', label=f'Mean SSD ON {cond1}')
+        ax_left.axvline(mean_SSD_OFF_cond1, color='grey', linestyle='-')
+        ax_right.axvline(mean_SSD_OFF_cond1, color='grey', linestyle='-')
+        ax_both.axvline(mean_SSD_OFF_cond1, color='grey', linestyle='-', label=f'Mean SSD OFF {cond1}')
+
+    if add_ssd_cond2:
+        ax_left.axvline(mean_SSD_ON_cond2, color='blue', linestyle='-')
+        ax_right.axvline(mean_SSD_ON_cond2, color='blue', linestyle='-')
+        ax_both.axvline(mean_SSD_ON_cond2, color='blue', linestyle='-', label=f'Mean SSD ON {cond2}')
+        ax_left.axvline(mean_SSD_OFF_cond2, color='green', linestyle='-')
+        ax_right.axvline(mean_SSD_OFF_cond2, color='green', linestyle='-')
+        ax_both.axvline(mean_SSD_OFF_cond2, color='green', linestyle='-', label=f'Mean SSD OFF {cond2}')
 
     fig.legend() 
 
@@ -438,21 +467,40 @@ def perc_pow_diff_on_off(
         saving_path: str = None,
         show_fig: bool = None,
         save_as: str = 'png',
+        add_rt: bool = True,
+        add_ssd: bool = True,
         baseline_correction: bool=True
         ):
-    
+
+    if add_rt:
+        if cond not in ['GS_successful', 'stop_successful']:
+            add_rt_cond = True
+            all_sub_RT_ON = []
+            all_sub_RT_OFF = []
+        else:
+            add_rt_cond = False
+
+    else: 
+        add_rt_cond = False
+
+    if add_ssd:
+        if cond in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond = True
+            all_sub_SSD_ON_cond = []
+            all_sub_SSD_OFF_cond = []
+        else: 
+            add_ssd_cond = False
+    else:
+        add_ssd_cond = False
+
     epoch_type = cond.split('_')[0]
     outcome_str = cond.split('_')[1]    
     outcome = 1.0 if outcome_str == "successful" else 0.0
 
-    all_sub_RT_ON = []
-    all_sub_RT_OFF = []
     all_diff_left = []
     all_diff_right = []
     all_diff_both = []
     subs_included = []
-
-    RT_plot = False
 
     # Collect epoch data for each condition
     for sub in sub_dict_ON_OFF.keys(): 
@@ -464,11 +512,19 @@ def perc_pow_diff_on_off(
                 outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
                 data_ON = epochs[type_mask & outcome_mask]                
 
-                if not (cond == 'GS_successful' or cond == 'stop_successful'):
-                    rt_on = data_ON.metadata['key_resp_experiment.rt'].mean() * 1000 
+                if add_rt_cond:
+                    rt_on = get_rt_for_plot(data_ON, cond)
                     all_sub_RT_ON.append(rt_on)
-                    RT_plot = True
-                    print(rt_on)
+                    print(f'RT ON: {rt_on}')
+
+                if add_ssd_cond:
+                    if cond in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_ON_cond = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_ON_cond.append(SSD_ON_cond)
+                    print(f'SSD ON cond: {SSD_ON_cond}')
 
                 (percentage_change_left_ON, 
                  percentage_change_right_ON, 
@@ -479,119 +535,25 @@ def perc_pow_diff_on_off(
                     baseline_correction = baseline_correction
                  )
 
-                # left_epochs_ON, right_epochs_ON = data_ON.copy().pick(['Left_STN']), data_ON.copy().pick(['Right_STN'])
-                
-                # power_left_ON = left_epochs_ON.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_ON = right_epochs_ON.compute_tfr(**tfr_args)
-
-                # power_left_ON.data *= 1e12 # V² -> (µV)²
-                # power_right_ON.data *= 1e12 # V² -> (µV)²
-
-                # power_left_ON_squeeze = power_left_ON.data.squeeze() # shape: (n_trials, n_freqs, n_times)
-                # power_right_ON_squeeze = power_right_ON.data.squeeze()
-
-                # mean_power_left_ON = np.nanmean(power_left_ON.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_ON = np.nanmean(power_right_ON.data, axis=0).squeeze()
-                
-                # times = power_left_ON.times * 1000
-                # freqs = power_left_ON.freqs
-
-                # # # Define baseline period for percentage change calculation
-                # # baseline_indices = (times >= -500) & (times <= -200)
-
-                # # # Percentage change for condition ON
-                # # baseline_power_left_ON = np.nanmean(mean_power_left_ON[:, baseline_indices], axis=1, keepdims=True)
-                # # percentage_change_left_ON = (mean_power_left_ON - baseline_power_left_ON) / baseline_power_left_ON * 100
-
-                # # baseline_power_right_ON = np.nanmean(mean_power_right_ON[:, baseline_indices], axis=1, keepdims=True)
-                # # percentage_change_right_ON = (mean_power_right_ON - baseline_power_right_ON) / baseline_power_right_ON * 100
-
-                # if epoch_type.startswith('G'):
-                #     # Define baseline period for percentage change calculation
-                #     baseline_indices = (times >= -500) & (times <= -200)
-
-                #     # # Calculate baseline power and percentage change for left STN and for right STN
-                #     # baseline_power_left = np.nanmean(mean_power_left[:, baseline_indices], axis=1, keepdims=True)
-                #     # percentage_change_left = (mean_power_left - baseline_power_left) / baseline_power_left * 100
-
-                #     # baseline_power_right = np.nanmean(mean_power_right[:, baseline_indices], axis=1, keepdims=True)
-                #     # percentage_change_right = (mean_power_right - baseline_power_right) / baseline_power_right * 100
-
-                #     baseline_power_left_ON = np.nanmean(power_left_ON_squeeze[:, :, baseline_indices], axis=2, keepdims=True)  # shape: (n_trials, n_freqs, 1 time)
-                #     #percentage_change_left_single_trial = ((power_left_squeeze - baseline_power_left) / baseline_power_left) * 100  # shape: (n_trials, n_freqs, n_times)
-                #     #percentage_change_left_single_trial = power_left_squeeze - baseline_power_left # shape: (n_trials, n_freqs, n_times)
-                #     percentage_change_left_ON_single_trial = 10.0 * np.log10(power_left_ON_squeeze / baseline_power_left_ON)
-
-                #     baseline_power_right_ON = np.nanmean(power_right_ON_squeeze[:, :, baseline_indices], axis=2, keepdims=True)  # shape: (n_trials, n_freqs, 1 time)
-                #     #percentage_change_right_single_trial = ((power_right_squeeze - baseline_power_right) / baseline_power_right) * 100  # shape: (n_trials, n_freqs, n_times)
-                #     #percentage_change_right_single_trial = power_right_squeeze - baseline_power_right
-                #     percentage_change_right_ON_single_trial = 10.0 * np.log10(power_right_ON_squeeze / baseline_power_right_ON)
-
-                #     percentage_change_left_ON = np.nanmean(percentage_change_left_ON_single_trial, axis=0)  # shape: (n_freqs, n_times)
-                #     percentage_change_right_ON = np.nanmean(percentage_change_right_ON_single_trial, axis=0)  # shape: (n_freqs, n_times)
-
-                # else: 
-                #     if epoch_type == 'stop': 
-                #         ssd_column = 'stop_signal_time'
-                #     elif epoch_type == 'continue':
-                #         ssd_column = 'continue_signal_time'
-
-                #     baseline_start_per_trial = - 500 - (np.array(data_ON.metadata[ssd_column]) * 1000)
-                #     baseline_end_per_trial = - 200 - (np.array(data_ON.metadata[ssd_column]) * 1000)
-
-                #     percentage_change_left_ON_single_trial = np.empty_like(power_left_ON_squeeze)  # same shape
-                #     baseline_power_left_ON = np.empty((power_left_ON_squeeze.shape[0], power_left_ON_squeeze.shape[1], 1))  # (n_trials, n_freqs, 1)
-
-                #     for i in range(power_left_ON_squeeze.shape[0]):  # loop over trials
-                #         # Get trial-specific baseline window
-                #         bl_start = baseline_start_per_trial[i]
-                #         bl_end   = baseline_end_per_trial[i]
-
-                #         # Find baseline indices in the common time axis
-                #         bl_idx = (times >= bl_start) & (times <= bl_end)
-
-                #         # Compute mean power in this window for all frequencies
-                #         bl_mean = np.nanmean(power_left_ON_squeeze[i][ :, bl_idx], axis=1, keepdims=True)
-
-                #         # Store baseline and percent change
-                #         baseline_power_left_ON[i] = bl_mean
-                #         #percentage_change_left_single_trial[i] = ((power_left_squeeze[i] - bl_mean) / bl_mean) * 100
-                #         #percentage_change_left_single_trial[i] = power_left_squeeze[i] - bl_mean
-                #         percentage_change_left_ON_single_trial[i] = 10.0 * np.log10(power_left_ON_squeeze[i] / bl_mean)
-
-                #     percentage_change_right_ON_single_trial = np.empty_like(power_right_ON_squeeze)  # same shape
-                #     baseline_power_right_ON = np.empty((power_right_ON_squeeze.shape[0], power_right_ON_squeeze.shape[1], 1))  # (n_trials, n_freqs, 1)
-
-                #     for i in range(power_right_ON_squeeze.shape[0]):  # loop over trials
-                #         # Get trial-specific baseline window
-                #         bl_start = baseline_start_per_trial[i]
-                #         bl_end   = baseline_end_per_trial[i]
-
-                #         # Find baseline indices in the common time axis
-                #         bl_idx = (times >= bl_start) & (times <= bl_end)
-
-                #         # Compute mean power in this window for all frequencies
-                #         bl_mean = np.nanmean(power_right_ON_squeeze[i][ :, bl_idx], axis=1, keepdims=True)
-
-                #         # Store baseline and percent change
-                #         baseline_power_right_ON[i] = bl_mean
-                #         #percentage_change_right_single_trial[i] = ((power_right_squeeze[i] - bl_mean) / bl_mean) * 100
-                #         #percentage_change_right_single_trial[i] = power_right_squeeze[i] - bl_mean
-                #         percentage_change_right_ON_single_trial[i] = 10.0 * np.log10(power_right_ON_squeeze[i] / bl_mean)
-
-                #         percentage_change_left_ON = np.nanmean(percentage_change_left_ON_single_trial, axis=0)  # shape: (n_freqs, n_times)
-                #         percentage_change_right_ON = np.nanmean(percentage_change_right_ON_single_trial, axis=0)  # shape: (n_freqs, n_times)
-
     
             if 'DBS OFF' in subject:
                 type_mask = epochs.metadata["event"] == epoch_type
                 outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
                 data_OFF = epochs[type_mask & outcome_mask]                
 
-                if not (cond == 'GS_successful' or cond == 'stop_successful'):
-                    rt_off = data_OFF.metadata['key_resp_experiment.rt'].mean() * 1000
+                if add_rt_cond:
+                    rt_off = get_rt_for_plot(data_OFF, cond)
                     all_sub_RT_OFF.append(rt_off)
-                    print(rt_off)
+                    print(f'RT OFF: {rt_off}')
+
+                if add_ssd_cond:
+                    if cond in ['GS_successful', 'GS_unsuccessful']:
+                        column_name = 'stop_signal_time'
+                    else:
+                        column_name = 'continue_signal_time'
+                    SSD_OFF_cond = epochs.metadata[column_name].mean() * 1000
+                    all_sub_SSD_OFF_cond.append(SSD_OFF_cond)
+                    print(f'SSD OFF cond: {SSD_OFF_cond}')
 
                 (percentage_change_left_OFF, 
                  percentage_change_right_OFF, 
@@ -602,123 +564,8 @@ def perc_pow_diff_on_off(
                     baseline_correction = baseline_correction
                  )
 
-                # left_epochs_OFF, right_epochs_OFF = data_OFF.copy().pick(['Left_STN']), data_OFF.copy().pick(['Right_STN'])
-            
-                # power_left_OFF = left_epochs_OFF.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
-                # power_right_OFF = right_epochs_OFF.compute_tfr(**tfr_args)
-
-                # power_left_OFF.data *= 1e12 # V² -> (µV)²
-                # power_right_OFF.data *= 1e12 # V² -> (µV)²
-
-                # power_left_OFF_squeeze = power_left_OFF.data.squeeze() # shape: (n_trials, n_freqs, n_times)
-                # power_right_OFF_squeeze = power_right_OFF.data.squeeze()            
-
-                # mean_power_left_OFF = np.nanmean(power_left_OFF.data, axis=0).squeeze() # shape: (n freqs, n times)
-                # mean_power_right_OFF = np.nanmean(power_right_OFF.data, axis=0).squeeze()
-                
-                # times = power_left_OFF.times * 1000
-                # freqs = power_left_OFF.freqs
-
-                # # # Define baseline period for percentage change calculation
-                # # baseline_indices = (times >= -500) & (times <= -200)
-
-                # # # Percentage change for condition OFF
-                # # baseline_power_left_OFF = np.nanmean(mean_power_left_OFF[:, baseline_indices], axis=1, keepdims=True)
-                # # percentage_change_left_OFF = (mean_power_left_OFF - baseline_power_left_OFF) / baseline_power_left_OFF * 100
-
-                # # baseline_power_right_OFF = np.nanmean(mean_power_right_OFF[:, baseline_indices], axis=1, keepdims=True)
-                # # percentage_change_right_OFF = (mean_power_right_OFF - baseline_power_right_OFF) / baseline_power_right_OFF * 100
-                # if epoch_type.startswith('G'):
-                #     # Define baseline period for percentage change calculation
-                #     baseline_indices = (times >= -500) & (times <= -200)
-
-                #     # # Calculate baseline power and percentage change for left STN and for right STN
-                #     # baseline_power_left = np.nanmean(mean_power_left[:, baseline_indices], axis=1, keepdims=True)
-                #     # percentage_change_left = (mean_power_left - baseline_power_left) / baseline_power_left * 100
-
-                #     # baseline_power_right = np.nanmean(mean_power_right[:, baseline_indices], axis=1, keepdims=True)
-                #     # percentage_change_right = (mean_power_right - baseline_power_right) / baseline_power_right * 100
-
-                #     baseline_power_left_OFF = np.nanmean(power_left_OFF_squeeze[:, :, baseline_indices], axis=2, keepdims=True)  # shape: (n_trials, n_freqs, 1 time)
-                #     #percentage_change_left_single_trial = ((power_left_squeeze - baseline_power_left) / baseline_power_left) * 100  # shape: (n_trials, n_freqs, n_times)
-                #     #percentage_change_left_single_trial = power_left_squeeze - baseline_power_left # shape: (n_trials, n_freqs, n_times)
-                #     percentage_change_left_OFF_single_trial = 10.0 * np.log10(power_left_OFF_squeeze / baseline_power_left_OFF)
-
-                #     baseline_power_right_OFF = np.nanmean(power_right_OFF_squeeze[:, :, baseline_indices], axis=2, keepdims=True)  # shape: (n_trials, n_freqs, 1 time)
-                #     #percentage_change_right_single_trial = ((power_right_squeeze - baseline_power_right) / baseline_power_right) * 100  # shape: (n_trials, n_freqs, n_times)
-                #     #percentage_change_right_single_trial = power_right_squeeze - baseline_power_right
-                #     percentage_change_right_OFF_single_trial = 10.0 * np.log10(power_right_OFF_squeeze / baseline_power_right_OFF)
-
-                #     percentage_change_left_OFF = np.nanmean(percentage_change_left_OFF_single_trial, axis=0)  # shape: (n_freqs, n_times)
-                #     percentage_change_right_OFF = np.nanmean(percentage_change_right_OFF_single_trial, axis=0)  # shape: (n_freqs, n_times)
-
-                # else: 
-                #     if epoch_type == 'stop': 
-                #         ssd_column = 'stop_signal_time'
-                #     elif epoch_type == 'continue':
-                #         ssd_column = 'continue_signal_time'
-
-                #     baseline_start_per_trial = - 500 - (np.array(data_OFF.metadata[ssd_column]) * 1000)
-                #     baseline_end_per_trial = - 200 - (np.array(data_OFF.metadata[ssd_column]) * 1000)
-
-                #     percentage_change_left_OFF_single_trial = np.empty_like(power_left_OFF_squeeze)  # same shape
-                #     baseline_power_left_OFF = np.empty((power_left_OFF_squeeze.shape[0], power_left_OFF_squeeze.shape[1], 1))  # (n_trials, n_freqs, 1)
-
-                #     for i in range(power_left_OFF_squeeze.shape[0]):  # loop over trials
-                #         # Get trial-specific baseline window
-                #         bl_start = baseline_start_per_trial[i]
-                #         bl_end   = baseline_end_per_trial[i]
-
-                #         # Find baseline indices in the common time axis
-                #         bl_idx = (times >= bl_start) & (times <= bl_end)
-
-                #         # Compute mean power in this window for all frequencies
-                #         bl_mean = np.nanmean(power_left_OFF_squeeze[i][ :, bl_idx], axis=1, keepdims=True)
-
-                #         # Store baseline and percent change
-                #         baseline_power_left_OFF[i] = bl_mean
-                #         #percentage_change_left_single_trial[i] = ((power_left_squeeze[i] - bl_mean) / bl_mean) * 100
-                #         #percentage_change_left_single_trial[i] = power_left_squeeze[i] - bl_mean
-                #         percentage_change_left_OFF_single_trial[i] = 10.0 * np.log10(power_left_OFF_squeeze[i] / bl_mean)
-
-                #     percentage_change_right_OFF_single_trial = np.empty_like(power_right_OFF_squeeze)  # same shape
-                #     baseline_power_right_OFF = np.empty((power_right_OFF_squeeze.shape[0], power_right_OFF_squeeze.shape[1], 1))  # (n_trials, n_freqs, 1)
-
-                #     for i in range(power_right_OFF_squeeze.shape[0]):  # loop over trials
-                #         # Get trial-specific baseline window
-                #         bl_start = baseline_start_per_trial[i]
-                #         bl_end   = baseline_end_per_trial[i]
-
-                #         # Find baseline indices in the common time axis
-                #         bl_idx = (times >= bl_start) & (times <= bl_end)
-
-                #         # Compute mean power in this window for all frequencies
-                #         bl_mean = np.nanmean(power_right_OFF_squeeze[i][ :, bl_idx], axis=1, keepdims=True)
-
-                #         # Store baseline and percent change
-                #         baseline_power_right_OFF[i] = bl_mean
-                #         #percentage_change_right_single_trial[i] = ((power_right_squeeze[i] - bl_mean) / bl_mean) * 100
-                #         #percentage_change_right_single_trial[i] = power_right_squeeze[i] - bl_mean
-                #         percentage_change_right_OFF_single_trial[i] = 10.0 * np.log10(power_right_OFF_squeeze[i] / bl_mean)
-
-                #         percentage_change_left_OFF = np.nanmean(percentage_change_left_OFF_single_trial, axis=0)  # shape: (n_freqs, n_times)
-                #         percentage_change_right_OFF = np.nanmean(percentage_change_right_OFF_single_trial, axis=0)  # shape: (n_freqs, n_times)
-
         diff_left = percentage_change_left_ON - percentage_change_left_OFF
         diff_right = percentage_change_right_ON - percentage_change_right_OFF
-
-        """
-        # Slicing TFR data to include only the t_min, t_max time range
-        time_indices = (times >= t_min_max[0]) & (times <= t_min_max[1])
-        #time_indices = np.logical_and(times >= t_min_max[0], times <= t_min_max[1])
-        print(time_indices)
-        sliced_times = times[time_indices]
-        print(sliced_times.shape)
-
-        sliced_diff_left = diff_left[:, time_indices]
-        print(sliced_diff_left.shape)
-        sliced_diff_right = diff_right[:, time_indices]
-        """
 
         all_diff_left.append(diff_left)
         all_diff_right.append(diff_right)
@@ -743,8 +590,8 @@ def perc_pow_diff_on_off(
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        #threshold = None
+        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        threshold = None
         n_permutations = 1000
 
         # Compute permutation cluster test for the left stn
@@ -763,9 +610,9 @@ def perc_pow_diff_on_off(
             T_obs_left,
             pval,
             tfr_args,
-            #cluster_results_dict,
             condition,
-            'Left'
+            'Left',
+            saving_path
             )
         
         # Compute permutation cluster test for the right stn
@@ -784,9 +631,9 @@ def perc_pow_diff_on_off(
             T_obs_right,
             pval,
             tfr_args,
-            #cluster_results_dict,
             condition,
-            'Right'
+            'Right',
+            saving_path
             )
 
         # Compute permutation cluster test for the left + right stn
@@ -805,18 +652,15 @@ def perc_pow_diff_on_off(
             T_obs_both,
             pval,
             tfr_args,
-            #cluster_results_dict,
             condition,
-            'Both'
+            'Both',
+            saving_path
             )
-
 
     # Average the percentage signal changes across subjects for left STN and for right STN
     avg_diff_left = np.nanmean(all_diff_left_array_sliced, axis=0)  # shape: (n freqs, n times)
-    print(f"avg diff left shape: {avg_diff_left.shape}")
     avg_diff_right = np.nanmean(all_diff_right_array_sliced, axis=0)
     avg_diff_both = np.nanmean(all_diff_both_array_sliced, axis=0)
-
 
     ################
     ### PLOTTING ###
@@ -826,12 +670,10 @@ def perc_pow_diff_on_off(
     fig, (ax_left, ax_right, ax_both) = plt.subplots(1, 3, figsize=(20, 8))
 
     # Figure title for n_subjects
-    sub_num = len(all_diff_left)
+    sub_num = len(subs_included)
 
-    if sub_num > 1:
-        fig.suptitle(f"Power difference DBS ON - DBS OFF {cond}, nSub = {sub_num}")
-    else:
-        fig.suptitle(f"Power difference DBS ON - DBS OFF {cond}, {subject[:6]}")
+    sub_prefix = sub_num if sub_num > 1 else subject[:6]
+    fig.suptitle(f"Power difference DBS ON - DBS OFF {cond}, {sub_prefix}")
 
     if epoch_type == 'stop':
         xlabel = 'Time from STOP cue (ms)'
@@ -840,7 +682,6 @@ def perc_pow_diff_on_off(
     else:
         xlabel = 'Time from GO cue (ms)'
     
-
     # Plot the percentage change difference for Left STN
     im_left = ax_left.imshow(avg_diff_left, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
@@ -848,7 +689,6 @@ def perc_pow_diff_on_off(
     ax_left.set_xlabel(xlabel)
     ax_left.set_ylabel('Frequency (Hz)')
     ax_left.set_title(f'Left STN - {cond}')
-    #fig.colorbar(im_left, ax=ax_left, label='Mean % Change (from baseline)')
     fig.colorbar(im_left, ax=ax_left, label='Change from baseline (dB)')
 
     # Plot the percentage change difference for Right STN
@@ -858,7 +698,6 @@ def perc_pow_diff_on_off(
     ax_right.set_xlabel(xlabel)
     ax_right.set_ylabel('Frequency (Hz)')
     ax_right.set_title(f'Right STN - {cond}')
-    #fig.colorbar(im_right, ax=ax_right, label='Mean % Change (from baseline)')
     fig.colorbar(im_right, ax=ax_right, label='Change from baseline (dB)')
 
     # Plot the percentage change difference for Left + Right STN
@@ -868,16 +707,9 @@ def perc_pow_diff_on_off(
     ax_both.set_xlabel(xlabel)
     ax_both.set_ylabel('Frequency (Hz)')
     ax_both.set_title(f'Left + Right STN - {cond}')
-    #fig.colorbar(im_both, ax=ax_both, label='Mean % Change (from baseline)')
     fig.colorbar(im_both, ax=ax_both, label='Change from baseline (dB)')
 
-    print(f" {cond} RT ON: {all_sub_RT_ON}")
-    print(f" {cond} RT OFF: {all_sub_RT_OFF}")
-
     if len(subs_included) > 1:
-        mean_RT_ON = np.mean(all_sub_RT_ON)
-        mean_RT_OFF = np.mean(all_sub_RT_OFF)
-    
         for c, p_val in zip(clusters_left, cluster_p_values_left):
             if p_val <= pval:
                 mask_L = np.zeros_like(T_obs_left, dtype=bool) 
@@ -897,15 +729,16 @@ def perc_pow_diff_on_off(
                 ax_both.contour(mask_R, levels=[0.5], colors='black', linewidths=1.5,
                                 extent=[t_min_max[0], t_min_max[-1], tfr_args["freqs"][0], tfr_args["freqs"][-1]])
 
-        #mean_SSD = np.mean(all_sub_SSD)
-        #mean_SSRT = np.mean(all_sub_SSRT)
-    else:
-        mean_RT_ON = all_sub_RT_ON[0]
-        mean_RT_OFF = all_sub_RT_OFF[0]
-        #mean_SSD = all_sub_SSD[0]
-        #mean_SSRT = all_sub_SSRT[0]
 
-    if RT_plot:     
+    if add_rt_cond:
+        print(f" {cond} RT ON: {all_sub_RT_ON}")
+        print(f" {cond} RT OFF: {all_sub_RT_OFF}")
+        if len(subs_included) > 1:
+            mean_RT_ON = np.mean(all_sub_RT_ON)
+            mean_RT_OFF = np.mean(all_sub_RT_OFF)
+        else:
+            mean_RT_ON = all_sub_RT_ON[0]
+            mean_RT_OFF = all_sub_RT_OFF[0]
         ax_left.axvline(mean_RT_ON, color='black', linestyle='--')
         ax_right.axvline(mean_RT_ON, color='black', linestyle='--')
         ax_both.axvline(mean_RT_ON, color='black', linestyle='--', label='Mean RT ON')
@@ -913,12 +746,21 @@ def perc_pow_diff_on_off(
         ax_right.axvline(mean_RT_OFF, color='grey', linestyle='--')
         ax_both.axvline(mean_RT_OFF, color='grey', linestyle='--', label='Mean RT OFF')
 
-    #ax_left.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')
-    #ax_right.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')    
-    #ax_both.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')    
-    #ax_left.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')
-    #ax_right.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')
-    #ax_both.axvline(mean_SSRT, color='blue', linestyle='--', label='Mean SSRT')    
+    if add_ssd_cond:
+        print(f" {cond} SSD ON: {all_sub_SSD_ON_cond}")
+        print(f" {cond} SSD OFF: {all_sub_SSD_OFF_cond}")
+        if len(subs_included) > 1:
+            mean_SSD_ON = np.mean(all_sub_SSD_ON_cond)
+            mean_SSD_OFF = np.mean(all_sub_SSD_OFF_cond)
+        else:
+            mean_SSD_ON = all_sub_SSD_ON_cond[0]
+            mean_SSD_OFF = all_sub_SSD_OFF_cond[0]
+        ax_left.axvline(mean_SSD_ON, color='grey', linestyle='-')
+        ax_right.axvline(mean_SSD_ON, color='grey', linestyle='-')    
+        ax_both.axvline(mean_SSD_ON, color='grey', linestyle='-', label='Mean SSD ON')    
+        ax_left.axvline(mean_SSD_OFF, color='grey', linestyle='-')
+        ax_right.axvline(mean_SSD_OFF, color='grey', linestyle='-')    
+        ax_both.axvline(mean_SSD_OFF, color='grey', linestyle='-', label='Mean SSD OFF')    
 
     fig.legend() 
 
@@ -957,6 +799,7 @@ def perc_pow_diff_cond(
         saving_path: str=None, 
         show_fig: bool = None,
         add_rt: bool = True,
+        add_ssd: bool = True,
         save_as: str = 'png'
         ):
         
@@ -978,14 +821,6 @@ def perc_pow_diff_cond(
     all_diff_left = []
     all_diff_right = []
     all_diff_both = []
-    all_sub_RT1 = []
-    all_sub_RT2 = []
-    all_sub_SSD = []
-
-    RT_plot1 = True
-    SSD_plot1 = False
-    RT_plot2 = True
-    SSD_plot2 = False
 
     epoch_type1 = epoch_cond1.split('_')[0]
     outcome_str1 = epoch_cond1.split('_')[1]
@@ -995,25 +830,35 @@ def perc_pow_diff_cond(
     outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
     outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
 
-    if epoch_cond1 == 'GS_successful':
-        RT_plot1 = False
-        SSD_plot1 = True
+    if add_rt:
+        if epoch_cond1 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond1 = True
+            all_sub_RT1 = []
+        else:
+            add_rt_cond1 = False
+        if epoch_cond2 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond2 = True
+            all_sub_RT2 = []
+        else:
+            add_rt_cond2 = False
+    else:
+        add_rt_cond1 = False
+        add_rt_cond2 = False
 
-    if epoch_cond1 == 'GS_unsuccessful':
-        SSD_plot1 = True
-
-    if epoch_cond2 == 'GS_successful':
-        RT_plot2 = False
-        SSD_plot2 = True
-
-    if epoch_cond2 == 'GS_unsuccessful':
-        SSD_plot2 = True    
-
-    if epoch_cond1 == 'stop_successful':
-        RT_plot1 = False
-    
-    if epoch_cond2 == 'stop_successful':
-        RT_plot2 = False
+    if add_ssd:
+        if epoch_cond1 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond1 = True
+            all_sub_SSD1 = []
+        else:
+            add_ssd_cond1 = False
+        if epoch_cond2 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond2 = True
+            all_sub_SSD2 = []
+        else:
+            add_ssd_cond2 = False
+    else:
+        add_ssd_cond1 = False
+        add_ssd_cond2 = False
 
     subs_included = []
 
@@ -1025,24 +870,32 @@ def perc_pow_diff_cond(
             outcome_mask1 = epochs.metadata["key_resp_experiment.corr"] == outcome1   # '1.0'
             data1 = epochs[type_mask1 & outcome_mask1]
 
-            if RT_plot1 and add_rt: 
-                sub_RT1 = data1.metadata["key_resp_experiment.rt"].mean() * 1000
+            if add_rt_cond1:
+                sub_RT1 = get_rt_for_plot(data1, epoch_cond1)
                 all_sub_RT1.append(sub_RT1)
-            if SSD_plot1:
-                sub_SSD = data1.metadata["stop_signal_time"].mean() * 1000
-                all_sub_SSD.append(sub_SSD)
+            if add_ssd_cond1:
+                if epoch_cond1 in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD1 = epochs.metadata[column_name].mean() * 1000
+                all_sub_SSD1.append(sub_SSD1)
 
             # Epoch condition 2
             type_mask2 = epochs.metadata["event"] == epoch_type2
             outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
             data2 = epochs[type_mask2 & outcome_mask2]
 
-            if RT_plot2 and add_rt: 
-                sub_RT2 = data2.metadata["key_resp_experiment.rt"].mean() * 1000
+            if add_rt_cond2:
+                sub_RT2 = get_rt_for_plot(data2, epoch_cond2)
                 all_sub_RT2.append(sub_RT2)
-            if SSD_plot2:
-                sub_SSD = data2.metadata["stop_signal_time"].mean() * 1000
-                all_sub_SSD.append(sub_SSD)                
+            if add_ssd_cond2:
+                if epoch_cond2 in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD2 = data2.metadata[column_name].mean() * 1000
+                all_sub_SSD2.append(sub_SSD2)
 
             (percentage_change_left_ep1, 
                 percentage_change_right_ep1, 
@@ -1071,8 +924,6 @@ def perc_pow_diff_cond(
 
             all_diff_left.append(diff_left)
             all_diff_right.append(diff_right)  
-            # all_diff_both.append(diff_left)
-            # all_diff_both.append(diff_right)
             all_diff_both.extend([diff_left, diff_right])
 
             subs_included.append(subject)
@@ -1090,13 +941,19 @@ def perc_pow_diff_cond(
     all_diff_right_array_sliced = all_diff_right_array[:,:,time_indices]
     all_diff_both_array_sliced = all_diff_both_array[:,:,time_indices]
 
+    # Average the percentage signal changes across subjects for left STN and for right STN
+    avg_diff_left = np.nanmean(all_diff_left_array_sliced, axis=0)
+    avg_diff_right = np.nanmean(all_diff_right_array_sliced, axis=0)
+    avg_diff_both = np.nanmean(all_diff_both_array_sliced, axis=0)
+
+
     if len(subs_included) > 1:
         n_obs = all_diff_left_array_sliced.shape[0]
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        #threshold = None
+        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        threshold = None
         n_permutations = 1000
 
         # Compute permutation cluster test for the left stn
@@ -1116,7 +973,8 @@ def perc_pow_diff_cond(
             pval,
             tfr_args,
             condition,
-            "Left"
+            "Left",
+            saving_path
             )
 
         # Compute permutation cluster test for the right stn
@@ -1136,7 +994,8 @@ def perc_pow_diff_cond(
             pval,
             tfr_args,
             condition,
-            "Right"
+            "Right",
+            saving_path
             )
 
         # Compute permutation cluster test for the left + right stn
@@ -1156,14 +1015,9 @@ def perc_pow_diff_cond(
             pval,
             tfr_args,
             condition,
-            "Both"
+            "Both",
+            saving_path
             )
-
-
-    # Average the percentage signal changes across subjects for left STN and for right STN
-    avg_diff_left = np.nanmean(all_diff_left_array_sliced, axis=0)
-    avg_diff_right = np.nanmean(all_diff_right_array_sliced, axis=0)
-    avg_diff_both = np.nanmean(all_diff_both_array_sliced, axis=0)
 
 
     ################
@@ -1176,53 +1030,42 @@ def perc_pow_diff_cond(
     # Figure title for n_subjects
     sub_num = len(all_diff_left)
 
-    if sub_num > 1:
-        fig.suptitle(f"Power difference {epoch_cond1} - {epoch_cond2}, nSub = {sub_num}")
-    else:
-        fig.suptitle(f"Power difference {epoch_cond1} - {epoch_cond2}, {subject[:6]}")
-
+    sub_prefix = f'nSub = {sub_num}' if sub_num > 1 else subject[:6]
+    fig.suptitle(f"Power difference {epoch_cond1} - {epoch_cond2}, {sub_prefix}")
 
     # Set the x label based on what the epochs are centered on:
-    if epoch_type1 == 'stop' or epoch_type1 == 'continue':
+    if epoch_type1 in ['stop', 'continue']:
         xlabel = 'Time from STOP cue (ms)'
     # elif epoch_type1 == 'continue':
     #     xlabel = 'Time from CONTINUE cue (ms)'
     else:
         xlabel = 'Time from GO cue (ms)'
         
-
     # Plot the percentage change difference for Left STN
     im_left = ax_left.imshow(avg_diff_left, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
                             cmap='jet', vmin=vmin_vmax[0], vmax=vmin_vmax[-1])
-    
-
     ax_left.set_xlabel(xlabel)
     ax_left.set_ylabel('Frequency (Hz)')
     ax_left.set_title(f'Left STN - {dbs_status}')
-    #fig.colorbar(im_left, ax=ax_left, label='Mean % Change (from baseline)')
     fig.colorbar(im_left, ax=ax_left, label='Change from baseline (dB)')
 
     # Plot the percentage change difference for Right STN
     im_right = ax_right.imshow(avg_diff_right, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
                             cmap='jet', vmin=vmin_vmax[0], vmax=vmin_vmax[-1])
-
     ax_right.set_xlabel(xlabel)
     ax_right.set_ylabel('Frequency (Hz)')
     ax_right.set_title(f'Right STN - {dbs_status}')
-    #fig.colorbar(im_right, ax=ax_right, label='Mean % Change (from baseline)')
     fig.colorbar(im_right, ax=ax_right, label='Change from baseline (dB)')
 
     # Plot the percentage change difference for Left + Right STN
     im_both = ax_both.imshow(avg_diff_both, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
                             cmap='jet', vmin=vmin_vmax[0], vmax=vmin_vmax[-1])
-
     ax_both.set_xlabel(xlabel)
     ax_both.set_ylabel('Frequency (Hz)')
     ax_both.set_title(f'Left + Right STN - {dbs_status}')
-    #fig.colorbar(im_both, ax=ax_both, label='Mean % Change (from baseline)')
     fig.colorbar(im_both, ax=ax_both, label='Change from baseline (dB)')
 
     # add significant clusters on the plot if group-level analysis:
@@ -1250,9 +1093,9 @@ def perc_pow_diff_cond(
         
 
 
-    if RT_plot1 and add_rt:
+    if add_rt_cond1:
         # Average mean RT across subjects
-        if len(subs_included) > 1:
+        if  len(subs_included) > 1:
             mean_RT1 = np.mean(all_sub_RT1)
         else:
             mean_RT1 = all_sub_RT1[0]
@@ -1260,17 +1103,17 @@ def perc_pow_diff_cond(
         ax_right.axvline(mean_RT1, color='black', linestyle='--')
         ax_both.axvline(mean_RT1, color='black', linestyle='--', label=f'Mean RT {epoch_cond1}')
 
-    if SSD_plot1:
+    if add_ssd_cond1:
         # Average mean RT across subjects
         if len(subs_included) > 1:
-            mean_SSD = np.mean(all_sub_SSD)
+            mean_SSD = np.mean(all_sub_SSD1)
         else:
-            mean_SSD = all_sub_SSD[0]
-        ax_left.axvline(mean_SSD, color='grey', linestyle='--')
-        ax_right.axvline(mean_SSD, color='grey', linestyle='--')
-        ax_both.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')
+            mean_SSD = all_sub_SSD1[0]
+        ax_left.axvline(mean_SSD, color='black', linestyle='-')
+        ax_right.axvline(mean_SSD, color='black', linestyle='-')
+        ax_both.axvline(mean_SSD, color='black', linestyle='-', label=f'Mean SSD {epoch_cond1}')
 
-    if RT_plot2 and add_rt:
+    if add_rt_cond2:
         # Average mean RT across subjects
         if len(subs_included) > 1:
             mean_RT2 = np.mean(all_sub_RT2)
@@ -1280,15 +1123,15 @@ def perc_pow_diff_cond(
         ax_right.axvline(mean_RT2, color='blue', linestyle='--')
         ax_both.axvline(mean_RT2, color='blue', linestyle='--', label=f'Mean RT {epoch_cond2}')
 
-    if SSD_plot2:
+    if add_ssd_cond2:
         # Average mean RT across subjects
         if len(subs_included) > 1:
-            mean_SSD = np.mean(all_sub_SSD)
+            mean_SSD = np.mean(all_sub_SSD2)
         else:
-            mean_SSD = all_sub_SSD[0]
-        ax_left.axvline(mean_SSD, color='grey', linestyle='--')
-        ax_right.axvline(mean_SSD, color='grey', linestyle='--')    
-        ax_both.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')    
+            mean_SSD = all_sub_SSD2[0]
+        ax_left.axvline(mean_SSD, color='blue', linestyle='-')
+        ax_right.axvline(mean_SSD, color='blue', linestyle='-')    
+        ax_both.axvline(mean_SSD, color='blue', linestyle='-', label=f'Mean SSD {epoch_cond2}')    
 
     fig.legend()
 
@@ -1326,6 +1169,7 @@ def tfr_pow_change_cond(
         saving_path: str=None, 
         show_fig: bool = False,
         add_rt: bool = True, 
+        add_ssd: bool = True, 
         save_as: str = 'png'
         ):
 
@@ -1365,24 +1209,29 @@ def tfr_pow_change_cond(
     all_percentage_change_left = []
     all_percentage_change_right = []
     all_percentage_change_both = []
-    all_sub_RT = []
-    all_sub_SSD = []
     subs_included = []
 
     # Parse epoch condition
     epoch_type, outcome_str = epoch_cond.split('_')
     outcome = 1.0 if outcome_str == "successful" else 0.0
 
-    # Decide which plots to show RT/SSD lines
-    RT_plot = True
-    SSD_plot = False
-    if epoch_type == 'GS':
-        SSD_plot = True
-        if outcome == 1.0:
-            RT_plot = False
-    if epoch_cond == 'stop_successful':
-        RT_plot = False
+    if add_rt:
+        if epoch_cond not in ['GS_successful', 'stop_successful']:
+            add_rt_cond = True
+            all_sub_RT = []
+        else:
+            add_rt_cond = False
+    else: 
+        add_rt_cond = False
 
+    if add_ssd:
+        if epoch_cond in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond = True
+            all_sub_SSD = []
+        else: 
+            add_ssd_cond = False
+    else:
+        add_ssd_cond = False
 
     for subject, epochs in sub_dict.items():
         if dbs_status in subject:
@@ -1390,11 +1239,15 @@ def tfr_pow_change_cond(
             outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
             data = epochs[type_mask & outcome_mask]
 
-            if RT_plot and add_rt: 
-                sub_RT = data.metadata["key_resp_experiment.rt"].mean() * 1000
+            if add_rt_cond: 
+                sub_RT = get_rt_for_plot(data, epoch_cond)
                 all_sub_RT.append(sub_RT)
-            if SSD_plot:
-                sub_SSD = data.metadata["stop_signal_time"].mean() * 1000
+            if add_ssd_cond:
+                if epoch_cond in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD = epochs.metadata[column_name].mean() * 1000
                 all_sub_SSD.append(sub_SSD)
             
             print(f"Data found: {len(data)} epochs loaded for {epoch_cond}")
@@ -1434,41 +1287,6 @@ def tfr_pow_change_cond(
     sliced_data_right = avg_percentage_change_right[:, time_mask]
     sliced_data_both = avg_percentage_change_both[:, time_mask]
 
-
-    # all_percentage_change_left = np.array(all_percentage_change_left)  # shape: (n sub, n freqs, n times)
-    # all_percentage_change_right = np.array(all_percentage_change_right)
-    # all_percentage_change_both = np.array(all_percentage_change_both)
-
-    # # Average the percentage signal changes across subjects for left STN and for right STN
-    # avg_percentage_change_left = np.nanmean(all_percentage_change_left, axis=0)
-    # avg_percentage_change_right = np.nanmean(all_percentage_change_right, axis=0)
-    # avg_percentage_change_both = np.nanmean(all_percentage_change_both, axis=0)
-
-    # # ################################################################################################################################
-
-    # # Slicing TFR data to include only the t_min, t_max time range
-    # time_indices = np.logical_and(times >= t_min_max[0], times <= t_min_max[1])
-    
-    # # selects only timepoints where time_indices = True, then removes dimensions with 1 (i.e., first dimension which is 1 channel)
-    # # first dimension is n_channels (which is already as we do left and right separately)
-    # sliced_data_left = avg_percentage_change_left[:, time_indices].squeeze()
-    # sliced_data_right = avg_percentage_change_right[:, time_indices].squeeze()
-    # sliced_data_both = avg_percentage_change_both[:, time_indices].squeeze()
-
-    # # Stack the scores for Left and Right STN across all subjects, so the output variable can be used for permutation cluster test
-    # group_all_change_left = np.stack(all_percentage_change_left)  # Shape: (n_subjects, n_frequencies, n_times)
-    # group_all_change_right = np.stack(all_percentage_change_right)  # Shape: (n_subjects, n_frequencies, n_times)
-    # group_all_change_both = np.stack(all_percentage_change_both)
-
-    # # Get the indices where the condition is True
-    # freq_indices = np.where((freqs >= 5) & (freqs <= 20))[0]
-    # time_indices = np.where((times >= -500) & (times <= 0))[0]
-
-    # # Use integer-based indexing
-    # filtered_data_left = group_all_change_left[:, freq_indices, :][:, :, time_indices]
-    # filtered_data_right = group_all_change_right[:, freq_indices, :][:, :, time_indices]
-    # filtered_data_both = group_all_change_both[:, freq_indices, :][:, :, time_indices]
-
     # Compute min and max along the frequency axis
     if not baseline_correction:
         min_values_left = np.min(sliced_data_left)  # Shape: (n_subjects, n_times)
@@ -1492,18 +1310,6 @@ def tfr_pow_change_cond(
     bc_note = "" if baseline_correction else ", no baseline correction"
     subject_info = f"nSub = {sub_num}" if sub_num > 1 else subject[:6]
     fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
-
-
-    # if baseline_correction:
-    #     if sub_num > 1:
-    #         fig.suptitle(f"Power change - {outcome_str} {epoch_type}, nSub = {sub_num}")
-    #     else:
-    #         fig.suptitle(f"Power change - {outcome_str} {epoch_type}, {subject[:6]}")
-    # else:
-    #     if sub_num > 1:
-    #         fig.suptitle(f"Power - {outcome_str} {epoch_type}, nSub = {sub_num}, no baseline correction")
-    #     else:
-    #         fig.suptitle(f"Power - {outcome_str} {epoch_type}, {subject[:6]}, no baseline correction")
 
     # Set the x label based on what the epochs are centered on:
     if epoch_type == 'stop':
@@ -1548,14 +1354,14 @@ def tfr_pow_change_cond(
 
 
     # Add RT or SSD lines
-    if RT_plot and add_rt and all_sub_RT:
+    if add_rt_cond:
         mean_RT = np.mean(all_sub_RT)
         for ax in (ax_left, ax_right, ax_both):
-            ax.axvline(mean_RT, color='black', linestyle='--', label='Mean RT')
-    if SSD_plot and all_sub_SSD:
+            ax.axvline(mean_RT, color='black', linestyle='--', label=f'Mean RT {epoch_cond}')
+    if add_ssd_cond:
         mean_SSD = np.mean(all_sub_SSD)
         for ax in (ax_left, ax_right, ax_both):
-            ax.axvline(mean_SSD, color='grey', linestyle='--', label='Mean SSD')
+            ax.axvline(mean_SSD, color='black', linestyle='-', label=f'Mean SSD {epoch_cond}')
 
 
     # Add legend if any labeled lines exist
