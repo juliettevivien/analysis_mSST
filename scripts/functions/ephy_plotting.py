@@ -17,8 +17,8 @@ from mne.stats import bootstrap_confidence_interval
 import os
 from functions.utils import stat_fun
 from functions.stats_tests import perform_permutation_cluster_test
-from functions.analysis import compute_percent_change, identify_significant_clusters, get_change_from_baseline
-
+from functions.analysis import compute_percent_change, identify_significant_clusters, get_change_from_baseline, eeg_get_change_from_baseline
+from mne.stats import permutation_cluster_test
 
 
 def get_rt_for_plot(data, cond):
@@ -1156,6 +1156,411 @@ def perc_pow_diff_cond(
         plt.close('all')
 
 
+def eeg_perc_pow_diff_cond(
+        sub_dict, 
+        dbs_status:str, 
+        tfr_args, 
+        t_min_max:list, 
+        vmin_vmax:list,
+        epoch_cond1:str, 
+        epoch_cond2:str, 
+        condition: str,
+        ch_of_interest: str = 'C3',
+        baseline_correction: bool = True,
+        saving_path: str=None, 
+        show_fig: bool = None,
+        add_rt: bool = True,
+        add_ssd: bool = True,
+        save_as: str = 'png'
+        ):
+        
+    """
+    Calculates % power change for the two specified conditions and subtracts epoch_cond2 from epoch_cond1, giving percentage change unique for epoch_cond1. 
+    Loops through all subs in sub_dict. 
+
+    Input:
+    - sub_dict: dict. containing all epochs (cue or feedback)
+    - dbs_status: "DBS ON" or "DBS OFF" 
+    - tfr_args: TFR parameters
+    - tmin, tmax: epoch slicing
+    - epoch_cond1: Epoch of interest "Win_cue", "Loss_cue"
+    - epoch_cond2: Baseline epoch, e.g., "Neutral_cue" to subtract from main epoch. 
+    - saving_path: Path where plots will be saved. If None figures are not saved. 
+    - show_fig: Defaults to None and figure isn't shown, if True figure is shown.
+    """
+    
+    all_diff = []
+
+    epoch_type1 = epoch_cond1.split('_')[0]
+    outcome_str1 = epoch_cond1.split('_')[1]
+    epoch_type2 = epoch_cond2.split('_')[0]
+    outcome_str2 = epoch_cond2.split('_')[1]
+
+    outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
+    outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
+
+    if add_rt:
+        if epoch_cond1 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond1 = True
+            all_sub_RT1 = []
+        else:
+            add_rt_cond1 = False
+        if epoch_cond2 not in ['GS_successful', 'stop_successful']:
+            add_rt_cond2 = True
+            all_sub_RT2 = []
+        else:
+            add_rt_cond2 = False
+    else:
+        add_rt_cond1 = False
+        add_rt_cond2 = False
+
+    if add_ssd:
+        if epoch_cond1 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond1 = True
+            all_sub_SSD1 = []
+        else:
+            add_ssd_cond1 = False
+        if epoch_cond2 in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond2 = True
+            all_sub_SSD2 = []
+        else:
+            add_ssd_cond2 = False
+    else:
+        add_ssd_cond1 = False
+        add_ssd_cond2 = False
+
+    subs_included = []
+
+    # Collect epoch data for each condition
+    for subject, epochs in sub_dict.items():
+        if dbs_status in subject:            
+            # Epoch condition 1
+            type_mask1 = epochs.metadata["event"] == epoch_type1  # 'GO'
+            outcome_mask1 = epochs.metadata["key_resp_experiment.corr"] == outcome1   # '1.0'
+            data1 = epochs[type_mask1 & outcome_mask1]
+
+            if add_rt_cond1:
+                sub_RT1 = get_rt_for_plot(data1, epoch_cond1)
+                all_sub_RT1.append(sub_RT1)
+            if add_ssd_cond1:
+                if epoch_cond1 in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD1 = epochs.metadata[column_name].mean() * 1000
+                all_sub_SSD1.append(sub_SSD1)
+
+            # Epoch condition 2
+            type_mask2 = epochs.metadata["event"] == epoch_type2
+            outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
+            data2 = epochs[type_mask2 & outcome_mask2]
+
+            if add_rt_cond2:
+                sub_RT2 = get_rt_for_plot(data2, epoch_cond2)
+                all_sub_RT2.append(sub_RT2)
+            if add_ssd_cond2:
+                if epoch_cond2 in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD2 = data2.metadata[column_name].mean() * 1000
+                all_sub_SSD2.append(sub_SSD2)
+
+            (percentage_change_ep1, 
+                times, 
+                freqs) = eeg_get_change_from_baseline(
+                    epochs = epochs,
+                    cond = epoch_cond1,
+                    ch_of_interest = ch_of_interest,
+                    tfr_args = tfr_args,
+                    baseline_correction = baseline_correction
+                )
+
+            (percentage_change_ep2, 
+                times, 
+                freqs) = eeg_get_change_from_baseline(
+                    epochs = epochs,
+                    cond = epoch_cond2,
+                    ch_of_interest = ch_of_interest,
+                    tfr_args = tfr_args,
+                    baseline_correction = baseline_correction
+                )
+
+            # Differences between Cond1 and Cond2 left and right STN
+            diff = percentage_change_ep1 - percentage_change_ep2
+
+            all_diff.append(diff)
+
+            subs_included.append(subject)
+
+
+    print(f'Subs included in analyses: \n {subs_included}')
+
+    all_diff_array = np.array(all_diff)  # shape: (n sub, n freqs, n times)
+
+    time_indices = (times >= t_min_max[0]) & (times <= t_min_max[1])
+    sliced_times = times[time_indices]
+    all_diff_array_sliced = all_diff_array[:,:,time_indices]
+
+    # Average the percentage signal changes across subjects for left STN and for right STN
+    avg_diff = np.nanmean(all_diff_array_sliced, axis=0)
+
+    if len(subs_included) > 1:
+        n_obs = all_diff_array_sliced.shape[0]
+        print(n_obs)
+        pval = 0.05
+        df = n_obs - 1
+        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        threshold = None
+        n_permutations = 1000
+
+        # Compute permutation cluster test for the left stn
+        T_obs, clusters, cluster_p_values, H0 = mne.stats.permutation_cluster_1samp_test(
+        all_diff_array_sliced, n_permutations=n_permutations,
+        threshold=threshold, tail=0,
+        out_type= "mask", seed=11111, verbose=True)
+        print(f"p_values: {cluster_p_values}")
+        print(f"P_values shape: {cluster_p_values.shape}")
+
+        print("Clusters for Left STN")
+        identify_significant_clusters(
+            cluster_p_values, 
+            clusters,
+            sliced_times,
+            T_obs,
+            pval,
+            tfr_args,
+            condition,
+            ch_of_interest,
+            saving_path
+            )
+
+
+    ################
+    ### PLOTTING ###
+    ################    
+
+    # Create a figure with two subplots for Left and Right STN
+    # fig, (ax_left, ax_right, ax_both) = plt.subplots(1, 3, figsize=(20, 8))
+
+    plt.figure(figsize=(10, 6))
+    # Figure title for n_subjects
+    sub_num = len(all_diff)
+
+    sub_prefix = f'nSub = {sub_num}' if sub_num > 1 else subject[:6]
+    plt.suptitle(f"Power difference {epoch_cond1} - {epoch_cond2}, {sub_prefix}, {ch_of_interest}")
+
+    # Set the x label based on what the epochs are centered on:
+    if epoch_type1 in ['stop', 'continue']:
+        xlabel = 'Time from STOP cue (ms)'
+    # elif epoch_type1 == 'continue':
+    #     xlabel = 'Time from CONTINUE cue (ms)'
+    else:
+        xlabel = 'Time from GO cue (ms)'
+        
+    # Plot the percentage change difference for Left STN
+    plt.imshow(avg_diff, aspect='auto', origin='lower', 
+                            extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+                            cmap='jet', vmin=vmin_vmax[0], vmax=vmin_vmax[-1])
+    plt.xlabel(xlabel)
+    plt.ylabel('Frequency (Hz)')
+    plt.colorbar(label='Change from baseline (dB)')
+
+
+    # add significant clusters on the plot if group-level analysis:
+    if sub_num > 1:
+        for c, p_val in zip(clusters, cluster_p_values):
+            if p_val <= pval:
+                mask = np.zeros_like(T_obs, dtype=bool)  # Explicitly match dimensions
+                mask[c] = True
+                plt.contour(mask, levels=[0.5], colors='black', linewidths=1.5,
+                            extent=[t_min_max[0], t_min_max[-1], tfr_args["freqs"][0], tfr_args["freqs"][-1]])
+
+
+    if add_rt_cond1:
+        # Average mean RT across subjects
+        if  len(subs_included) > 1:
+            mean_RT1 = np.mean(all_sub_RT1)
+        else:
+            mean_RT1 = all_sub_RT1[0]
+        plt.axvline(mean_RT1, color='black', linestyle='--', label=f'Mean RT {epoch_cond1}')
+
+    if add_ssd_cond1:
+        # Average mean RT across subjects
+        if len(subs_included) > 1:
+            mean_SSD = np.mean(all_sub_SSD1)
+        else:
+            mean_SSD = all_sub_SSD1[0]
+        plt.axvline(mean_SSD, color='black', linestyle='-', label=f'Mean SSD {epoch_cond1}')
+
+    if add_rt_cond2:
+        # Average mean RT across subjects
+        if len(subs_included) > 1:
+            mean_RT2 = np.mean(all_sub_RT2)
+        else:
+            mean_RT2 = all_sub_RT2[0]
+        plt.axvline(mean_RT2, color='blue', linestyle='--', label=f'Mean RT {epoch_cond2}')
+
+    if add_ssd_cond2:
+        # Average mean RT across subjects
+        if len(subs_included) > 1:
+            mean_SSD = np.mean(all_sub_SSD2)
+        else:
+            mean_SSD = all_sub_SSD2[0]
+        plt.axvline(mean_SSD, color='blue', linestyle='-', label=f'Mean SSD {epoch_cond2}')
+
+    plt.legend()
+
+    if sub_num > 1:
+        # Save the figure if a saving path is provided
+        figtitle = f"Power_diff_{epoch_cond1}_{epoch_cond2}_{dbs_status}_{ch_of_interest}.png"
+        figtitle_pdf = f"Power_diff_{epoch_cond1}_{epoch_cond2}_{dbs_status}_{ch_of_interest}.pdf"
+    else:
+        # Save the figure if a saving path is provided
+        figtitle = f"{subject[:6]}_Power_diff_{epoch_cond1}_{epoch_cond2}_{dbs_status}_{ch_of_interest}.png"
+        figtitle_pdf = f"{subject[:6]}_Power_diff_{epoch_cond1}_{epoch_cond2}_{dbs_status}_{ch_of_interest}.pdf"
+
+    if saving_path is not None:
+        if save_as == 'png':
+            plt.savefig(join(saving_path, figtitle), transparent=False)
+        else:
+            plt.savefig(join(saving_path, figtitle_pdf), transparent=False)
+
+    if show_fig == True:
+        plt.show()
+    else:
+        plt.close('all')
+
+
+
+
+def erp_change_diff_cond(
+        sub_dict,
+        dbs_status, 
+        epoch_cond1,
+        epoch_cond2,
+        condition,
+        condition_color_dict,
+        alpha=0.05,
+        n_permutations=1000
+):
+    # Common time grid
+    tmin, tmax = -0.5, 1.5
+    sfreq = 2048
+    common_times = np.arange(tmin, tmax + 1/sfreq, 1/sfreq)
+
+    all_cond1 = []
+    all_cond2 = []
+    subs_included = []
+
+    # Collect epoch data for each condition
+    for subject, epochs in sub_dict.items():
+        if dbs_status in subject:    
+            # Parse condition names
+            epoch_type1, outcome_str1 = epoch_cond1.split('_')
+            outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
+
+            epoch_type2, outcome_str2 = epoch_cond2.split('_')
+            outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
+
+            # Select epochs
+            type_mask1 = epochs.metadata["event"] == epoch_type1
+            outcome_mask1 = epochs.metadata["key_resp_experiment.corr"] == outcome1
+            data1 = epochs[type_mask1 & outcome_mask1]
+
+            type_mask2 = epochs.metadata["event"] == epoch_type2
+            outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
+            data2 = epochs[type_mask2 & outcome_mask2]
+
+            # Crop and z-score
+            cropped_data1 = data1.crop(tmin=tmin, tmax=tmax)
+            cropped_data2 = data2.crop(tmin=tmin, tmax=tmax)
+
+            crunched_data1 = cropped_data1.apply_function(lambda x: (x - np.mean(x)) / np.std(x), channel_wise=True)
+            crunched_data2 = cropped_data2.apply_function(lambda x: (x - np.mean(x)) / np.std(x), channel_wise=True)
+
+            averaged_data1 = crunched_data1.average()
+            averaged_data2 = crunched_data2.average()
+
+            # Interpolate to common time grid
+            new_data1 = np.vstack([np.interp(common_times, averaged_data1.times, ch) for ch in averaged_data1.data])
+            evoked_interp1 = mne.EvokedArray(new_data1, averaged_data1.info, tmin=common_times[0])
+
+            new_data2 = np.vstack([np.interp(common_times, averaged_data2.times, ch) for ch in averaged_data2.data])
+            evoked_interp2 = mne.EvokedArray(new_data2, averaged_data2.info, tmin=common_times[0])
+
+            all_cond1.append(evoked_interp1)
+            all_cond2.append(evoked_interp2)
+
+            subs_included.append(subject)
+
+    # Convert to arrays for stats
+    X1 = np.array([evk.data for evk in all_cond1])  # shape (n_subs, n_channels, n_times)
+    X2 = np.array([evk.data for evk in all_cond2])
+    times = common_times
+    n_channels = X1.shape[1]
+
+    # Grand averages
+    avg_cond1 = mne.grand_average(all_cond1)
+    avg_cond2 = mne.grand_average(all_cond2)
+
+    # Compute stats for each channel separately
+    cluster_results = []
+    for ch in range(n_channels):
+        data = [X1[:, ch, :], X2[:, ch, :]]
+        T_obs, clusters, p_values, _ = permutation_cluster_test(
+            data, n_permutations=n_permutations, tail=0, out_type='indices', seed=42
+        )
+        cluster_results.append((clusters, p_values))
+
+    # Plot ERP topographies
+    # tiny_dict = dict(data1=condition_color_dict[epoch_cond1],
+    #                  data2=condition_color_dict[epoch_cond2])
+    # evokeds_cond1_cond2 = dict(data1=all_cond1, data2=all_cond2)
+
+    # axes = mne.viz.plot_compare_evokeds(evokeds_cond1_cond2, 
+    #                                    picks='eeg',
+    #                                    colors=tiny_dict,
+    #                                    axes='topo',
+    #                                    styles=dict(data1=dict(linewidth=1), 
+    #                                                data2=dict(linewidth=1)))
+
+    # Build dicts using actual condition names as keys
+    evokeds_cond1_cond2 = {
+        epoch_cond1: all_cond1,
+        epoch_cond2: all_cond2
+    }
+
+    tiny_dict = {
+        epoch_cond1: condition_color_dict[epoch_cond1],
+        epoch_cond2: condition_color_dict[epoch_cond2]
+    }    
+
+    # Plot
+    axes = mne.viz.plot_compare_evokeds(
+        evokeds_cond1_cond2,
+        picks='eeg',
+        colors=tiny_dict,
+        axes='topo',
+        styles=dict(**{epoch_cond1: dict(linewidth=1),
+                    epoch_cond2: dict(linewidth=1)})
+    )
+
+    # Add shaded clusters
+    #axes = fig.axes
+    for ch_idx, ax in enumerate(axes):
+        clusters, p_values = cluster_results[ch_idx]
+        for cluster, p_val in zip(clusters, p_values):
+            if p_val < alpha:
+                print('Significant cluster found')
+                times_cluster = times[cluster[0]]
+                ax.axvspan(times_cluster[0], times_cluster[-1], color='red', alpha=0.3)
+
+    plt.suptitle(f"{condition} with significant clusters", fontsize=14)
+    plt.show()
+
+    return avg_cond1, avg_cond2, cluster_results
+
 
 
 def tfr_pow_change_cond(
@@ -1390,7 +1795,200 @@ def tfr_pow_change_cond(
         plt.close(fig)
 
 
+def eeg_tfr_pow_change_cond(
+        sub_dict, 
+        dbs_status:str, 
+        epoch_cond:str,
+        ch_of_interest: str,
+        tfr_args, 
+        t_min_max:list, 
+        vmin_vmax:list,
+        baseline_correction:bool=True,
+        saving_path: str=None, 
+        show_fig: bool = False,
+        add_rt: bool = True, 
+        add_ssd: bool = True, 
+        save_as: str = 'png'
+        ):
 
+    
+    """
+    Runs TFR on the chosen epoch condition, averages raw signal across epochs before performing TFR,
+    and plots TFR plots showing percentage power change (or absolute power) in DBS ON or DBS OFF condition.
+    Loops through all subjects in sub_dict.
+
+    Parameters
+    ----------
+    sub_dict : dict
+        Dictionary containing all epochs per subject.
+    dbs_status : str
+        "DBS ON" or "DBS OFF".
+    epoch_cond : str
+        Condition name (e.g., "Win_cue", "Loss_cue").
+    tfr_args : dict
+        TFR computation parameters (freqs, n_cycles, etc.).
+    t_min_max : list
+        Time range [tmin, tmax] for plotting (in ms).
+    vmin_vmax : list
+        Color scale range [vmin, vmax] for plots.
+    baseline_correction : bool, optional
+        Whether to apply baseline correction.
+    saving_path : str, optional
+        Directory where plots will be saved. If None, figures are not saved.
+    show_fig : bool, optional
+        If True, display the figure.
+    add_rt : bool, optional
+        If True, plot mean RT as a vertical line.
+    save_as : str, optional
+        File format for saving ('png' or 'pdf').
+    """
+  
+    # Prepare containers
+    all_percentage_change = []
+    subs_included = []
+
+    # Parse epoch condition
+    epoch_type, outcome_str = epoch_cond.split('_')
+    outcome = 1.0 if outcome_str == "successful" else 0.0
+
+    if add_rt:
+        if epoch_cond not in ['GS_successful', 'stop_successful']:
+            add_rt_cond = True
+            all_sub_RT = []
+        else:
+            add_rt_cond = False
+    else: 
+        add_rt_cond = False
+
+    if add_ssd:
+        if epoch_cond in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond = True
+            all_sub_SSD = []
+        else: 
+            add_ssd_cond = False
+    else:
+        add_ssd_cond = False
+
+    for subject, epochs in sub_dict.items():
+        if dbs_status in subject:
+            type_mask = epochs.metadata["event"] == epoch_type
+            outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
+            data = epochs[type_mask & outcome_mask]
+
+            if add_rt_cond: 
+                sub_RT = get_rt_for_plot(data, epoch_cond)
+                all_sub_RT.append(sub_RT)
+            if add_ssd_cond:
+                if epoch_cond in ['GS_successful', 'GS_unsuccessful']:
+                    column_name = 'stop_signal_time'
+                else:
+                    column_name = 'continue_signal_time'
+                sub_SSD = epochs.metadata[column_name].mean() * 1000
+                all_sub_SSD.append(sub_SSD)
+            
+            print(f"Data found: {len(data)} epochs loaded for {epoch_cond}")
+
+            (percentage_change,
+                times,
+                freqs) = eeg_get_change_from_baseline(
+                    epochs = epochs,
+                    cond = epoch_cond,
+                    ch_of_interest = ch_of_interest,
+                    tfr_args = tfr_args,
+                    baseline_correction = baseline_correction
+                )
+
+            # Append each subject's percentage change to the lists
+            all_percentage_change.append(percentage_change)
+            print(f'length all percentage change: {len(all_percentage_change)}')
+            subs_included.append(subject)
+
+    print(f'Subjects included in analyses: \n {subs_included}')
+
+    #print(f'all percentage change shape: {all_percentage_change.shape}')
+    # Convert to arrays (shape: (n_subs, n_freqs, n_times))
+    #all_percentage_change = np.stack(all_percentage_change)
+    all_percentage_change = np.array(all_percentage_change)
+    print(f'all percentage change shape after stacking: {all_percentage_change.shape}')    
+
+    # Compute grand averages
+    avg_percentage_change = np.nanmean(all_percentage_change, axis=0)
+
+    # Slice time window for plotting
+    time_mask = (times >= t_min_max[0]) & (times <= t_min_max[1])
+    sliced_data = avg_percentage_change[:, time_mask]
+
+    # Compute min and max along the frequency axis
+    if not baseline_correction:
+        min_values = np.min(sliced_data)  # Shape: (n_subjects, n_times)
+        max_values = np.max(sliced_data)
+
+
+    ################
+    ### PLOTTING ###
+    ################
+
+    # Create a figure with two subplots for Left and Right STN
+    # fig, (ax) = plt.subplots(1, 3, figsize=(20, 8))
+
+    # Figure title
+    sub_num = len(subs_included)
+    title_prefix = "Power change" if baseline_correction else "Power"
+    bc_note = "" if baseline_correction else ", no baseline correction"
+    subject_info = f"nSub = {sub_num}" if sub_num > 1 else subject[:6]
+    #fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
+
+    # Set the x label based on what the epochs are centered on:
+    if epoch_type == 'stop':
+        xlabel = 'Time from STOP cue (ms)'
+    elif epoch_type == 'continue':
+        xlabel = 'Time from CONTINUE cue (ms)'
+    else:
+        xlabel = 'Time from GO cue (ms)'
+        
+    # Plot Left STN
+    plt.figure(figsize=(10, 6))
+    vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
+    plt.imshow(sliced_data, aspect='auto', origin='lower', 
+                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+                             cmap='jet', vmin=vmin, vmax=vmax)
+    plt.xlabel(xlabel)
+    plt.ylabel('Frequency (Hz)')
+    plt.title(f"{title_prefix} - {outcome_str} {epoch_type} {ch_of_interest} channel, {subject_info}{bc_note}")
+    plt.colorbar(label='Change from baseline (dB)' if baseline_correction else 'Mean Power (µV²)')
+
+    # Add RT or SSD lines
+    if add_rt_cond:
+        mean_RT = np.mean(all_sub_RT)
+        plt.axvline(mean_RT, color='black', linestyle='--', label=f'Mean RT {epoch_cond}')
+    if add_ssd_cond:
+        mean_SSD = np.mean(all_sub_SSD)
+        plt.axvline(mean_SSD, color='black', linestyle='-', label=f'Mean SSD {epoch_cond}')
+
+    # Add legend if any labeled lines exist
+    # handles, labels = ax_both.get_legend_handles_labels()
+    # if handles:
+        # fig.legend(handles, labels)
+    plt.legend()
+    # Save figure if needed
+    if saving_path:
+        figtitle_base = f"{outcome_str}_{epoch_type}_{dbs_status}_{ch_of_interest}"
+        if sub_num == 1:
+            figtitle_base = f"{subject[:6]}_" + figtitle_base
+        if baseline_correction:
+            figtitle = f"Power_change_{figtitle_base}"
+        else:
+            figtitle = f"Power_{figtitle_base}_no_baseline_correction"
+
+        file_path = join(saving_path, f"{figtitle}.{save_as}")
+        plt.savefig(file_path, transparent=False)
+        print(f"Figure saved as {file_path}")
+
+    # Show or close figure
+    if show_fig:
+        plt.show()
+    else:
+        plt.close()
 
 
 def plot_raw_stim(

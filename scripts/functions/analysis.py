@@ -3,6 +3,87 @@ import numpy as np
 import pandas as pd
 import os
 
+
+def eeg_get_change_from_baseline(
+        epochs,
+        cond,
+        ch_of_interest,
+        tfr_args,
+        baseline_correction: True,
+):
+    epoch_type = cond.split('_')[0]
+    outcome_str = cond.split('_')[1]
+    outcome = 1.0 if outcome_str == 'successful' else 0.0
+
+    type_mask = epochs.metadata["event"] == epoch_type
+    outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
+    data = epochs[type_mask & outcome_mask] 
+
+    epochs = data.copy().pick([ch_of_interest])
+    
+    power = epochs.compute_tfr(**tfr_args)  # shape: (n epochs, n channels=1, n freqs, n times)
+    print(f'power shape: {power.data.shape}')
+
+    power.data *= 1e12 # V² -> (µV)²
+
+    power_squeeze = power.data.squeeze() # shape: (n_trials, n_freqs, n_times)
+    print(f'power_squeeze shape: {power_squeeze.shape}')
+
+    times = power.times * 1000
+    freqs = power.freqs
+
+    print(f"Epochs time range: {epochs.times.min()} to {epochs.times.max()}")
+    print(f"TFR time range: {power.times.min()} to {power.times.max()}")
+    print(f"Baseline indices count: {np.sum((times >= -500) & (times <= -200))}")
+    print(f"Number of epochs after filtering: {len(data)}")
+
+    if not baseline_correction:
+        mean_power = np.nanmean(power_squeeze, axis=0).squeeze() # shape: (n freqs, n times)
+        return mean_power, times, freqs
+
+    elif baseline_correction:
+        if epoch_type.startswith('G'):
+            # Define baseline period for change calculation
+            baseline_indices = (times >= -500) & (times <= -200)
+
+            baseline_power = np.nanmean(power_squeeze[:, :, baseline_indices], axis=2, keepdims=True)  # shape: (n_trials, n_freqs, 1 time)
+            change_single_trial = 10.0 * np.log10(power_squeeze / baseline_power)
+
+            change = np.nanmean(change_single_trial, axis=0)  # shape: (n_freqs, n_times)
+
+        else: 
+            if epoch_type == 'stop': 
+                ssd_column = 'stop_signal_time'
+            elif epoch_type == 'continue':
+                ssd_column = 'continue_signal_time'
+
+            baseline_start_per_trial = - 500 - (np.array(data.metadata[ssd_column]) * 1000)
+            baseline_end_per_trial = - 200 - (np.array(data.metadata[ssd_column]) * 1000)
+
+            change_single_trial = np.empty_like(power_squeeze)  # same shape
+            baseline_power = np.empty((power_squeeze.shape[0], power_squeeze.shape[1], 1))  # (n_trials, n_freqs, 1)
+
+            for i in range(power_squeeze.shape[0]):  # loop over trials
+                # Get trial-specific baseline window
+                bl_start = baseline_start_per_trial[i]
+                bl_end   = baseline_end_per_trial[i]
+
+                # Find baseline indices in the common time axis
+                bl_idx = (times >= bl_start) & (times <= bl_end)
+
+                # Compute mean power in this window for all frequencies
+                bl_mean = np.nanmean(power_squeeze[i][ :, bl_idx], axis=1, keepdims=True)
+
+                # Store baseline and change
+                baseline_power[i] = bl_mean
+                change_single_trial[i] = 10.0 * np.log10(power_squeeze[i] / bl_mean)
+
+            change = np.nanmean(change_single_trial, axis=0)  # shape: (n_freqs, n_times)
+        print(f'change shape: {change.shape}')
+
+        return change, times, freqs
+
+
 def get_change_from_baseline(
         epochs,
         cond,
