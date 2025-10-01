@@ -7,7 +7,9 @@ import os
 from os.path import join
 import json
 import pandas as pd
-
+from pyxdf import resolve_streams
+from numpy.core.records import fromarrays
+from scipy.io import savemat
 
 def save_epochs(epochs, session_ID, filename, saving_path):
     """Save MNE Epochs object as a .fif file and return the filename."""
@@ -65,3 +67,46 @@ def load_behav_data(
         data[subject] = df
 
     return data
+
+
+
+def find_EEG_stream(fpath_external, stream_name):
+    # Determine which stream contains the EEG data:
+    xdf_datas = resolve_streams(fpath_external)
+    streams_dict = {}
+
+    for streams in range(0, len(xdf_datas), 1):
+        streams_dict[xdf_datas[streams]['name']] = xdf_datas[streams]['stream_id']
+    
+    # in streams_dict, find the stream_id corresponding to the EEG stream:
+    stream_id = streams_dict[stream_name]
+
+    return stream_id
+
+
+def write_set(fname, raw, annotations_onset):
+    """Export raw to EEGLAB .set file."""
+    data = raw.get_data() * 1e6  # convert to microvolts
+    fs = raw.info["sfreq"]
+    times = raw.times
+    ch_names = raw.info["ch_names"]
+    chanlocs = fromarrays([ch_names], names=["labels"])
+    events = fromarrays([raw.annotations.description,
+                         annotations_onset * fs + 1,
+                         raw.annotations.duration * fs],
+                        names=["type", "latency", "duration"])
+    savemat(fname, dict(EEG=dict(data=data,
+                                 setname=fname,
+                                 nbchan=data.shape[0],
+                                 pnts=data.shape[1],
+                                 trials=1,
+                                 srate=fs,
+                                 xmin=times[0],
+                                 xmax=times[-1],
+                                 chanlocs=chanlocs,
+                                 event=events,
+                                 icawinv=[],
+                                 icasphere=[],
+                                 icaweights=[])),
+            appendmat=False)
+    
