@@ -9,8 +9,8 @@ from functions import utils, io, hrm
 # pick format to save figures : png for quick visualization, pdf for illustrator
 save_as = 'png'
 color_dict = {
-    'dbs_off': '#20a39e', 
-    'dbs_on': '#ef5b5b', 
+    'DBS OFF': '#20a39e', 
+    'DBS ON': '#ef5b5b', 
     'control': '#ffba49', 
     'preop': '#8E7DBE'
     }
@@ -159,7 +159,6 @@ if group_rt_ssd_relation:
         os.makedirs(temp_save)
     hrm.check_independence_assumption_rt_ssd_relation_group_level(
         stats = stats, 
-        color_dict = color_dict,   
         excluded_subjects = excluded_subjects,
         save_as = save_as,
         saving_path = temp_save

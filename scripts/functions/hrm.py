@@ -44,9 +44,9 @@ def check_independence_assumption_single_sub(
             condition = 'preop'
         else:
             if 'ON' in subject_id:
-                condition = 'dbs_on'
+                condition = 'DBS ON'
             else:
-                condition = 'dbs_off'
+                condition = 'DBS OFF'
         for trial_type in trial_types:
             if f"{trial_type} RTs (ms)" in subject_data:  # Ensure the trial type key exists
                 data.extend([(trial_type, val) for val in subject_data[f"{trial_type} RTs (ms)"]])
@@ -265,9 +265,9 @@ def check_independence_assumption_rt_ssd_relation(
             condition = 'preop'
         else:
             if 'ON' in subject:
-                condition = 'dbs_on'
+                condition = 'DBS ON'
             else:
-                condition = 'dbs_off'
+                condition = 'DBS OFF'
         u_GS_RT = stats[subject]['stop_trial RTs (ms)']
         SSD = stats[subject]['unsuccessful stop SSD (ms)']
         
@@ -355,7 +355,6 @@ def check_independence_assumption_rt_ssd_relation(
 
 def check_independence_assumption_rt_ssd_relation_group_level(
         stats, 
-        color_dict,   
         excluded_subjects,
         save_as,
         saving_path
@@ -466,9 +465,9 @@ def check_success_rate(
         elif subject_id.startswith('preop'):
             condition = 'preop'
         elif 'OFF' in subject_id:
-            condition = 'dbs_off'
+            condition = 'DBS OFF'
         elif 'ON' in subject_id:
-            condition = 'dbs_on'
+            condition = 'DBS ON'
         
         # Append a dictionary for each subject
         data_list.append({
@@ -495,7 +494,7 @@ def check_success_rate(
         opacity = 0.8
         plt.figure(figsize=(10, 6))
 
-        plt.bar(index, values, bar_width, alpha=opacity, color=color_dict[condition], label='control', capsize=5)
+        plt.bar(index, values, bar_width, alpha=opacity, color=color_dict[condition], label=condition, capsize=5)
 
         for i, (val) in enumerate(values):
             plt.text(x=i, y=val + 1, s=f'{val:.1f}%', ha='center', va='bottom', color='black')
