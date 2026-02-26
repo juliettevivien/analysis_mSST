@@ -187,16 +187,15 @@ if check_success_rate:
         saving_path = temp_save
     )    
 
-# save excluded subjects in a txt file and JSON file
+# save excluded subjects in a txt file
 with open(join(behav_results_saving_path, "excluded_subjects.txt"), "w") as f:
     for sub in excluded_subjects:
         f.write(sub + "\n")
-with open(join(results_path, 'final_included_subjects.json'), 'w') as f:
-    json.dump(included_subjects, f, indent=4)   
 
-# save remaining included_subjects in a txt file
+# save remaining included_subjects in a txt file and a JSON file
 included_subjects = [sub for sub in included_subjects if sub not in excluded_subjects]
 with open(join(behav_results_saving_path, "included_subjects.txt"), "w") as f:
     for sub in included_subjects:
         f.write(sub + "\n")      
-
+with open(join(results_path, 'final_included_subjects.json'), 'w') as f:
+    json.dump(included_subjects, f, indent=4)   
