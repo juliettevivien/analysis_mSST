@@ -11,6 +11,65 @@ from os.path import join
 import pandas as pd
 from collections import defaultdict
 from scipy.stats import wilcoxon, ttest_rel
+import matplotlib.pyplot as plt
+
+
+def plot_color_palette(subject_colors, save_as=None, saving_path=None):
+    plt.figure(figsize=(1, 8))
+    for i, (subject, color) in enumerate(subject_colors.items()):
+        plt.scatter(0, i, color=color, s=200)
+        plt.text(0.1, i, subject, rotation=0, ha='left', va='center', fontsize=8)
+    plt.axis('off')
+    if save_as and saving_path:
+        plt.savefig(join(saving_path, f"subject_color_palette.{save_as}"), dpi=300, bbox_inches='tight')
+        plt.close()
+    else:    
+        plt.show()
+
+
+def get_parameters_for_condition(epoch_cond, add_rt, add_ssd):
+    latency_matched = False # default
+    if epoch_cond == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type = 'GO'
+        outcome_str = 'successful'
+        outcome = 1.0
+    else:
+        # Parse epoch condition
+        epoch_type, outcome_str = epoch_cond.split('_')
+        outcome = 1.0 if outcome_str == "successful" else 0.0
+
+    if add_rt:
+        if epoch_cond not in ['GS_successful', 'stop_successful']:
+            add_rt_cond = True
+            all_sub_RT = []
+        else:
+            add_rt_cond = False
+    # else: 
+    #     add_rt_cond = False
+
+    if add_ssd:
+        if epoch_cond in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
+            add_ssd_cond = True
+            all_sub_SSD = []
+        else: 
+            add_ssd_cond = False
+    # else:
+    #     add_ssd_cond = False
+
+    param_dict = {
+        'latency_matched': latency_matched,
+        'epoch_type': epoch_type,
+        'outcome_str': outcome_str,
+        'outcome': outcome,
+        'add_rt_cond': add_rt_cond,
+        'all_sub_RT': all_sub_RT if add_rt_cond else False,
+        'add_ssd_cond': add_ssd_cond,
+        'all_sub_SSD': all_sub_SSD if add_ssd_cond else False
+    }
+
+    return param_dict
+    
 
 
 def get_group_values_ecdf(stats):
@@ -399,6 +458,9 @@ def extract_stats(data):
     for subject in data:
         df = data[subject]
         sub_dict = {}
+
+        sub_dict['hand'] = df['right_or_left_resp.keys'].iloc[0]
+
         # return the index of the first row which is not filled by a Nan value:
         start_task_index = df['blocks.thisRepN'].first_valid_index()
         # Crop dataframe in 2 parts: before and after the task:
@@ -504,7 +566,31 @@ def extract_stats(data):
                 prep_cost = None
             all_prep_cost.append(prep_cost)
         sub_dict['all preparation costs (ms)'] = all_prep_cost
-        
+
+        # calculate GC RT from continue cue 
+        df_maintask_gc_successful = df_maintask_copy[
+            (df_maintask_copy['trial_type'] == 'go_continue_trial') &
+            (df_maintask_copy['key_resp_experiment.corr'] == 1)
+            ]
+        gc_RTs = (df_maintask_gc_successful['key_resp_experiment.rt'] * 1000).tolist()
+        go_rectangle_started = (df_maintask_gc_successful['go_rectangle.started']* 1000).tolist()
+        continue_signal_started = (df_maintask_gc_successful['stop_signal_triangle.started']* 1000).tolist()
+        gc_RTs_from_continue = [(go_rectangle_started[i] + gc_RTs[i]) - continue_signal_started[i] for i in range(len(gc_RTs))]
+        sub_dict['GC RTs from continue cue (ms)'] = gc_RTs_from_continue
+
+        # calculate GS RT from stop cue:
+        df_maintask_gs_unsuccessful = df_maintask_copy[
+            (df_maintask_copy['trial_type'] == 'stop_trial') &
+            (df_maintask_copy['key_resp_experiment.corr'] == 0)
+            ]
+        gs_RTs = (df_maintask_gs_unsuccessful['key_resp_experiment.rt'] * 1000).tolist()
+        go_rectangle_started = (df_maintask_gs_unsuccessful['go_rectangle.started']* 1000).tolist()
+        stop_signal_started = (df_maintask_gs_unsuccessful['stop_signal_triangle.started'] * 1000).tolist()
+        gs_RTs_from_stop = [(go_rectangle_started[i] + gs_RTs[i]) - stop_signal_started[i] for i in range(len(gs_RTs))]
+        sub_dict['GS RTs from stop cue (ms)'] = gs_RTs_from_stop
+
+        sub_dict['Preparation cost (ms)'] = sub_dict['go_trial mean RT (ms)'] - sub_dict['go_fast_trial mean RT (ms)']
+
         stats[subject] = sub_dict
             
     return stats
@@ -547,7 +633,7 @@ def stat_fun(x):
     """Return sum of squares."""
     return np.sum(x**2, axis=0)
 
-
+import distinctipy
 
 def create_color_palette(
         included_subjects
@@ -573,16 +659,18 @@ def create_color_palette(
     #subject_palette = sns.color_palette("husl", len(unique_sub))  # Ensure distinct colors
     #subject_colors = dict(zip(unique_sub, subject_palette))
 
-    subject_palette1 = sns.color_palette("husl", len(unique_sub))  # Original
-    subject_palette2 = sns.husl_palette(len(unique_sub), s=0.9, l=0.5)  # Adjust s (saturation) and l (lightness)
+    # subject_palette1 = sns.color_palette("husl", len(unique_sub))  # Ensure distinct colors
+    # subject_palette2 = sns.husl_palette(len(unique_sub), s=0.9, l=0.5)  # Adjust s (saturation) and l (lightness)
 
-    # Create a new palette by alternating colors
-    interleaved_palette = [
-        subject_palette1[i] if i % 2 == 0 else subject_palette2[i]
-        for i in range(len(unique_sub))
-    ]
+    # # Create a new palette by alternating colors
+    # interleaved_palette = [
+    #     subject_palette1[i] if i % 2 == 0 else subject_palette2[i]
+    #     for i in range(len(unique_sub))
+    # ]
 
-    subject_colors = dict(zip(unique_sub, interleaved_palette))
+    # subject_colors = dict(zip(unique_sub, interleaved_palette))
+    subject_palette = distinctipy.get_colors(len(unique_sub), pastel_factor=0.4, rng=1)
+    subject_colors = dict(zip(unique_sub, subject_palette))
     
     
     return subject_colors
