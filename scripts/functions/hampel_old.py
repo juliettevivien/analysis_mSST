@@ -13,7 +13,7 @@ parameter:
     'median': replace identified outliers with moving median (similar to Allen et al. 2010)
     'attenuation': attenuated outlier segments by scaling them according to power in surrounding samples
     
-Hampel-Filter in in short: 
+Hampel-Filter in short: 
         1) Time Courses are transformed into frequency domain with short fast 
             fourier transform (sftf).
         2) MAD outlier detection is applied to the spectra to identify outliers (=DBS-related peaks).
@@ -24,7 +24,7 @@ Hampel-Filter in in short:
 Additionally: 
     + two plotting functions are provided that should enable to quickly
       check effects of hampelfilter and therby, inform the tuning of the cval/n_sigmas value.
-    + Function writing obatined cleaned TCs to mne.Raw obejct for further MNE use.
+    + Function writing obtained cleaned TCs to mne.Raw obejct for further MNE use.
 
 """
 
@@ -72,7 +72,9 @@ def moving_vars(series, window_size, scale="normal"):
     # Optionally scale the MAD to approximate estimate of standard deviation under assumption of normality
     if scale == 'normal':
         moving_mad *= 1.4826
-    
+    # plt.plot(moving_mad, label='Moving MAD')
+    # plt.plot(moving_median, label='Moving Median')
+
     return moving_median, moving_mad
 
 
@@ -197,15 +199,14 @@ def median_interpolate_outliers(series, outlier_mask, window_size):
  
     # Get moving median for time series
     moving_median, _ = moving_vars(series, window_size, scale="normal")
-    print(f'Calculated moving median for series of length {len(series)}.')
+ 
     # Insert median at samples where outliers were detected
     cleaned_data = series.copy()
     cleaned_data[outlier_mask] = moving_median[outlier_mask]
-    print(f'Replaced outlier samples with moving median.')
     
     return cleaned_data
 
-from scipy.ndimage import median_filter
+
 def hampel_filter(tc, sfreq, cleaning_method='attenuation', sftf_window=60, moving_window=3, cval=8, frequency_range=[14,80]):
     """
     Clean raw MEG data from DBS-Stimulation Artefacts.
@@ -271,76 +272,47 @@ def hampel_filter(tc, sfreq, cleaning_method='attenuation', sftf_window=60, movi
                      noverlap=noverlap, 
                      return_onesided=return_onesided, 
                      scaling=scaling)
-    print(f'Zxx shape: {Zxx.shape}') # returns Zxx shape: (32, 61440, 14) which is (32ch, 61440 frequencies, 14 times)
-    # low time resolution due to long stft_win which is basicaly 1min
-    # as a trade off we get very high frequency resolution
     
     # Calculate signal's energy and average PSDs across windows and channels
     Zxx2 = np.abs(Zxx) ** 2
     psd = Zxx2.mean(axis=(0,2)) 
+    plt.plot(psd, label='Original')
+
     
     # --- Identify Outlier events based on MAD outlier detection and 'clean' them
     
-    # Run MAD outlier detection -> cval curcial for sensitivity of outlier detection
+    # Run MAD outlier detection -> cval crucial for sensitivity of outlier detection
     window_size = int(sfreq * moving_window)  # Convert to number of samples
     outliers = detect_mad_outliers(psd, window_size, n_sigmas=cval)
-    print(f'Outliers detected at frequencies: {f[outliers]} Hz')
     
     # Unselect outlier frequency bins outside of frequency ranges of interest
     freq_mask = create_mask_from_frequency_ranges(frequency_range, f)
     outliers[~freq_mask] = 0
-    print(f'Outliers retained after frequency range masking: {f[outliers]} Hz')
             
     # Attenuate detected outlier samples
-    print(f'Starting outlier cleaning with method: {cleaning_method}')
     if cleaning_method == 'median':            
-        # # Median interpolation for outlier segments
-        # attenuated_real = np.apply_along_axis(median_interpolate_outliers, 1, Zxx.real, outlier_mask=outliers, window_size=window_size) # window size can be reduced improve filtering outcomes - but extends running time quite a bit
-        # print(f'Finished median interpolation for real part.')
-        # attenuated_imag = np.apply_along_axis(median_interpolate_outliers, 1, Zxx.imag, outlier_mask=outliers, window_size=window_size) # window size can be reduced improve filtering outcomes - but extends running time quite a bit
-        # print(f'Finished median interpolation for imaginary part.')
-        print(f'Outliers.shape: {outliers.shape}') # returns: Outliers.shape: (61440,)
-        attenuated_real = Zxx.real.copy()
-        attenuated_imag = Zxx.imag.copy()
-
-        if len(outliers) == 0:
-            print("No outliers detected.")
-        else:
-            # just process outlier frequencies instead of all the frequencies
-            Zxx_real_sel = Zxx.real[:, outliers, :]  # shape: (channels, n_outliers, time)
-            Zxx_imag_sel = Zxx.imag[:, outliers, :]
-
-            size = (1, window_size, 1)  # median along frequency axis, keep same shape as Zxx shape
-
-            med_real_sel = median_filter(Zxx_real_sel, size=size)
-            med_imag_sel = median_filter(Zxx_imag_sel, size=size)
-
-            # Replace only outlier frequencies (all channels, all time windows)
-            attenuated_real[:, outliers, :] = med_real_sel
-            attenuated_imag[:, outliers, :] = med_imag_sel
-
-        print("Finished median interpolation (outlier frequencies only).")
-
+        # Median interpolation for outlier segments
+        attenuated_real = np.apply_along_axis(median_interpolate_outliers, 1, Zxx.real, outlier_mask=outliers, window_size=window_size) # window size can be reduced improve filtering outcomes - but extends running time quite a bit
+        attenuated_imag = np.apply_along_axis(median_interpolate_outliers, 1, Zxx.imag, outlier_mask=outliers, window_size=window_size) # window size can be reduced improve filtering outcomes - but extends running time quite a bit
+    
     elif cleaning_method == 'attenuation':            
         # Attenuate identified outlier segments
         attenuated_real = np.apply_along_axis(attenuate_outliers, 1, Zxx.real, outlier_mask=outliers)
-        print(f'Finished attenuation for real part.')
-        attenuated_imag = np.apply_along_axis(attenuate_outliers, 1, Zxx.imag, outlier_mask=outliers)   
-        print(f'Finished attenuation for imaginary part.')    
+        attenuated_imag = np.apply_along_axis(attenuate_outliers, 1, Zxx.imag, outlier_mask=outliers)       
 
     # --- Project Frequency domain data back to time courses ---
     
     # Combine real and imaginary parts into cleaned signal
-    print(f'Combining real and imaginary parts into cleaned frequency data.')
     cleaned_Zxx = attenuated_real + 1j * attenuated_imag
     
     # Test to see whether outliers outside of expected window were identified
-    print('Testing cleaned data for remaining outliers.')
     psd_clean = np.abs(cleaned_Zxx) ** 2
     psd_clean = psd_clean.mean(axis=(2))
+    #plt.plot(psd_clean, label='Cleaned')
+    plt.legend(bbox_to_anchor=(1, 0.5, 0.5, 0.5), loc='upper right')
+    plt.suptitle(f'Power Spectra before and after Hampel Filter \nMethod: {cleaning_method}, cval: {cval}')
     
     # Calculate inverse STFT (ISTFT)
-    print(f'Projecting cleaned frequency data back to time courses with inverse STFT.')
     _, cleaned_tc = istft(cleaned_Zxx, 
                           fs=fs, 
                           nperseg=nperseg, 
@@ -350,7 +322,6 @@ def hampel_filter(tc, sfreq, cleaning_method='attenuation', sftf_window=60, movi
     
     # Trim the cleaned time course to match the original length
     cleaned_tc = cleaned_tc[:, :tc.shape[1]]
-    print(f'Finished projecting cleaned data back to time courses.')
     
     return cleaned_tc
     
@@ -391,9 +362,9 @@ def plot_hampel_filter1(tc, tc_cleaned, sfreq, freq_range=[2,45], nperseg=40):
     ax[2].set_ylabel('Power\nDifference')
     ax[2].set_xlabel('Frequency (Hz)')
     
-    return fig
+    plt.show()
     
-def plot_hampel_filter2(raw, cleaned_raw, freq_ranges=[[1,50],[10,20],[25,35]],ephys_chans='eeg', n_fft=1000, n_overlap=500):
+def plot_hampel_filter2(raw, cleaned_raw, freq_ranges=[[1,50],[10,20],[25,35]],ephys_chans='misc', n_fft=1000, n_overlap=500):
     # Quick plot of power calculated from original time course and cleaned time course.
     # Zooms on 3 freq ranges of interest
     
@@ -440,7 +411,7 @@ def plot_hampel_filter2(raw, cleaned_raw, freq_ranges=[[1,50],[10,20],[25,35]],e
     axs[1,2].tick_params(axis='both', which='major',labelsize=8)
     axs[1,2].locator_params(nbins=3)
     
-    return fig
+    plt.show()
 
 def create_mne_raw(cleaned_tc, raw, ephys_chans="meg", extra_chans=["stim","emg"]):
     # Importantly, this fuction is a modified version of 

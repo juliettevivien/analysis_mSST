@@ -15,10 +15,76 @@ from os.path import join
 from mne.baseline import rescale
 from mne.stats import bootstrap_confidence_interval
 import os
-from functions.utils import stat_fun
+from functions.utils import stat_fun, get_parameters_for_condition
 from functions.stats_tests import perform_permutation_cluster_test
 from functions.analysis import compute_percent_change, identify_significant_clusters, get_change_from_baseline, eeg_get_change_from_baseline
 from mne.stats import permutation_cluster_test
+
+
+
+
+def plot_tfr_result(
+        all_percentage_change,
+        epochs_cond,
+        roi,
+        tfr_args,
+        tmin_tmax,
+        vmin_vmax,
+        baseline_correction,
+        baseline_correction_method,
+        sub_num,
+        sub = None
+        ):
+    title_prefix = "Power change" if baseline_correction else "Power"
+    bc_note = "" if baseline_correction else ", no baseline correction"
+    subject_info = f"nSub = {sub_num}" if sub_num > 1 else sub
+    #fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
+
+    # Set the x label based on what the epochs are centered on:
+    aligned_on = epochs_cond[0].split('_')[-1]
+    if aligned_on == 'response':
+        xlabel = 'Time from RESPONSE (ms)'
+    elif aligned_on == 'feedback':
+        xlabel = 'Time from FEEDBACK (ms)'
+    elif aligned_on == 'square':
+        xlabel = 'Time from GO cue (ms)'
+    elif aligned_on == 'triangle':
+        xlabel = 'Time from STOP/CONTINUE cue (ms)'
+        # if epoch_type == 'GS': 
+        #     xlabel = 'Time from STOP cue (ms)'
+        # elif epoch_type == 'GC':
+        #     xlabel = 'Time from CONTINUE cue (ms)'
+
+    # Compute grand averages
+    avg_percentage_change = np.nanmean(all_percentage_change, axis=0)       
+
+    # Compute min and max along the frequency axis
+    if not baseline_correction:
+        min_values = np.min(avg_percentage_change)  # Shape: (n_subjects, n_times)
+        max_values = np.max(avg_percentage_change)
+        
+    # Plot Left STN
+    plt.figure(figsize=(10, 6))
+    vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
+    plt.imshow(avg_percentage_change, aspect='auto', origin='lower', 
+                            extent=[tmin_tmax[0], tmin_tmax[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+                            cmap='jet', vmin=vmin, vmax=vmax)
+    plt.xlabel(xlabel)
+    plt.ylabel('Frequency (Hz)')
+    plt.title(f"{title_prefix} - {epochs_cond} {roi}, {subject_info}{bc_note}")
+    if baseline_correction:
+        if baseline_correction_method == 'single_trial':
+            colorbar_label = 'Change from baseline (dB)'
+        else:
+            colorbar_label = 'Percent change from baseline (%)'
+    else:
+        colorbar_label = 'Mean Power (µV²)'
+    plt.colorbar(label=colorbar_label)    
+
+
+
+
+
 
 
 def get_rt_for_plot(data, cond):
@@ -47,7 +113,8 @@ def perc_pow_diff_on_off_contrast(
         show_fig: bool = None,
         add_rt: bool = True,
         add_ssd: bool = True,
-        save_as: str = 'png'
+        save_as: str = 'png',
+        baseline_correction_method: str = 'single_trial'
         ):
 
     all_diff_left = []
@@ -146,7 +213,8 @@ def perc_pow_diff_on_off_contrast(
                         epochs = epochs,
                         cond = cond1,
                         tfr_args = tfr_args,
-                        baseline_correction = True
+                        baseline_correction = True,
+                        baseline_correction_method = baseline_correction_method
                     )
 
                 (percentage_change_left_ON_cond2, 
@@ -155,7 +223,8 @@ def perc_pow_diff_on_off_contrast(
                         epochs = epochs,
                         cond = cond2,
                         tfr_args = tfr_args,
-                        baseline_correction = True
+                        baseline_correction = True,
+                        baseline_correction_method = baseline_correction_method
                     )
 
                 percentage_change_left_ON_contrast = percentage_change_left_ON_cond1 - percentage_change_left_ON_cond2
@@ -204,7 +273,8 @@ def perc_pow_diff_on_off_contrast(
                         epochs = epochs,
                         cond = cond1,
                         tfr_args = tfr_args,
-                        baseline_correction = True
+                        baseline_correction = True,
+                        baseline_correction_method = baseline_correction_method
                     )
 
                 (percentage_change_left_OFF_cond2, 
@@ -213,7 +283,8 @@ def perc_pow_diff_on_off_contrast(
                         epochs = epochs,
                         cond = cond2,
                         tfr_args = tfr_args,
-                        baseline_correction = True
+                        baseline_correction = True,
+                        baseline_correction_method = baseline_correction_method
                     )
 
                 percentage_change_left_OFF_contrast = percentage_change_left_OFF_cond1 - percentage_change_left_OFF_cond2
@@ -251,8 +322,8 @@ def perc_pow_diff_on_off_contrast(
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        threshold = None
+        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        #threshold = None
         n_permutations = 1000
 
 
@@ -469,7 +540,8 @@ def perc_pow_diff_on_off(
         save_as: str = 'png',
         add_rt: bool = True,
         add_ssd: bool = True,
-        baseline_correction: bool=True
+        baseline_correction: bool=True,
+        baseline_correction_method: str = 'single_trial'
         ):
 
     if add_rt:
@@ -532,7 +604,8 @@ def perc_pow_diff_on_off(
                     epochs = epochs,
                     cond = cond,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                  )
 
     
@@ -561,7 +634,8 @@ def perc_pow_diff_on_off(
                     epochs = epochs,
                     cond = cond,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                  )
 
         diff_left = percentage_change_left_ON - percentage_change_left_OFF
@@ -590,8 +664,8 @@ def perc_pow_diff_on_off(
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        threshold = None
+        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        #threshold = None
         n_permutations = 1000
 
         # Compute permutation cluster test for the left stn
@@ -681,7 +755,12 @@ def perc_pow_diff_on_off(
         xlabel = 'Time from CONTINUE cue (ms)'
     else:
         xlabel = 'Time from GO cue (ms)'
-    
+
+    if baseline_correction_method == 'single_trial':
+        legend_label = 'Change from baseline (dB)'
+    else:
+        legend_label = 'Percent change from baseline (%)'
+
     # Plot the percentage change difference for Left STN
     im_left = ax_left.imshow(avg_diff_left, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
@@ -689,7 +768,7 @@ def perc_pow_diff_on_off(
     ax_left.set_xlabel(xlabel)
     ax_left.set_ylabel('Frequency (Hz)')
     ax_left.set_title(f'Left STN - {cond}')
-    fig.colorbar(im_left, ax=ax_left, label='Change from baseline (dB)')
+    fig.colorbar(im_left, ax=ax_left, label=legend_label)
 
     # Plot the percentage change difference for Right STN
     im_right = ax_right.imshow(avg_diff_right, aspect='auto', origin='lower', 
@@ -698,7 +777,7 @@ def perc_pow_diff_on_off(
     ax_right.set_xlabel(xlabel)
     ax_right.set_ylabel('Frequency (Hz)')
     ax_right.set_title(f'Right STN - {cond}')
-    fig.colorbar(im_right, ax=ax_right, label='Change from baseline (dB)')
+    fig.colorbar(im_right, ax=ax_right, label=legend_label)
 
     # Plot the percentage change difference for Left + Right STN
     im_both = ax_both.imshow(avg_diff_both, aspect='auto', origin='lower', 
@@ -707,7 +786,7 @@ def perc_pow_diff_on_off(
     ax_both.set_xlabel(xlabel)
     ax_both.set_ylabel('Frequency (Hz)')
     ax_both.set_title(f'Left + Right STN - {cond}')
-    fig.colorbar(im_both, ax=ax_both, label='Change from baseline (dB)')
+    fig.colorbar(im_both, ax=ax_both, label=legend_label)
 
     if len(subs_included) > 1:
         for c, p_val in zip(clusters_left, cluster_p_values_left):
@@ -800,7 +879,8 @@ def perc_pow_diff_cond(
         show_fig: bool = None,
         add_rt: bool = True,
         add_ssd: bool = True,
-        save_as: str = 'png'
+        save_as: str = 'png', 
+        baseline_correction_method: str = 'single_trial'
         ):
         
     """
@@ -821,14 +901,27 @@ def perc_pow_diff_cond(
     all_diff_left = []
     all_diff_right = []
     all_diff_both = []
+    latency_matched = False
 
-    epoch_type1 = epoch_cond1.split('_')[0]
-    outcome_str1 = epoch_cond1.split('_')[1]
-    epoch_type2 = epoch_cond2.split('_')[0]
-    outcome_str2 = epoch_cond2.split('_')[1]
-
-    outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
-    outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
+    if epoch_cond1 == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type1 = 'GO'
+        outcome_str1 = 'successful'
+        outcome1 = 1.0
+    else:
+        epoch_type1 = epoch_cond1.split('_')[0]
+        outcome_str1 = epoch_cond1.split('_')[1]
+        outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
+    
+    if epoch_cond2 == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type2 = 'GO'
+        outcome_str2 = 'successful'
+        outcome2 = 1.0
+    else:
+        epoch_type2 = epoch_cond2.split('_')[0]
+        outcome_str2 = epoch_cond2.split('_')[1]
+        outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
 
     if add_rt:
         if epoch_cond1 not in ['GS_successful', 'stop_successful']:
@@ -870,6 +963,13 @@ def perc_pow_diff_cond(
             outcome_mask1 = epochs.metadata["key_resp_experiment.corr"] == outcome1   # '1.0'
             data1 = epochs[type_mask1 & outcome_mask1]
 
+            if latency_matched and epoch_cond1 == 'lm_GO_successful':
+                rt = data1.metadata['key_resp_experiment.rt'].values
+                # get indexes of 50% slowest trials and only keep these in the data object
+                slowest_trials = np.percentile(rt, 50)
+                slow_mask = rt >= slowest_trials
+                data1 = data1[slow_mask]
+
             if add_rt_cond1:
                 sub_RT1 = get_rt_for_plot(data1, epoch_cond1)
                 all_sub_RT1.append(sub_RT1)
@@ -885,6 +985,13 @@ def perc_pow_diff_cond(
             type_mask2 = epochs.metadata["event"] == epoch_type2
             outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
             data2 = epochs[type_mask2 & outcome_mask2]
+
+            if latency_matched and epoch_cond2 == 'lm_GO_successful':
+                rt = data2.metadata['key_resp_experiment.rt'].values
+                # get indexes of 50% slowest trials and only keep these in the data object
+                slowest_trials = np.percentile(rt, 50)
+                slow_mask = rt >= slowest_trials
+                data2 = data2[slow_mask]
 
             if add_rt_cond2:
                 sub_RT2 = get_rt_for_plot(data2, epoch_cond2)
@@ -904,7 +1011,8 @@ def perc_pow_diff_cond(
                     epochs = epochs,
                     cond = epoch_cond1,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
             (percentage_change_left_ep2, 
@@ -914,7 +1022,8 @@ def perc_pow_diff_cond(
                     epochs = epochs,
                     cond = epoch_cond2,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
 
@@ -952,8 +1061,8 @@ def perc_pow_diff_cond(
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        threshold = None
+        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        #threshold = None
         n_permutations = 1000
 
         # Compute permutation cluster test for the left stn
@@ -1041,6 +1150,11 @@ def perc_pow_diff_cond(
     else:
         xlabel = 'Time from GO cue (ms)'
         
+    if baseline_correction_method == 'single_trial':
+        legend_label = 'Change from baseline (dB)'
+    elif baseline_correction_method == 'group_average':
+        legend_label = 'Percent change from baseline (%)'
+
     # Plot the percentage change difference for Left STN
     im_left = ax_left.imshow(avg_diff_left, aspect='auto', origin='lower', 
                             extent=[t_min_max[0], t_min_max[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
@@ -1048,7 +1162,7 @@ def perc_pow_diff_cond(
     ax_left.set_xlabel(xlabel)
     ax_left.set_ylabel('Frequency (Hz)')
     ax_left.set_title(f'Left STN - {dbs_status}')
-    fig.colorbar(im_left, ax=ax_left, label='Change from baseline (dB)')
+    fig.colorbar(im_left, ax=ax_left, label=legend_label)
 
     # Plot the percentage change difference for Right STN
     im_right = ax_right.imshow(avg_diff_right, aspect='auto', origin='lower', 
@@ -1057,7 +1171,7 @@ def perc_pow_diff_cond(
     ax_right.set_xlabel(xlabel)
     ax_right.set_ylabel('Frequency (Hz)')
     ax_right.set_title(f'Right STN - {dbs_status}')
-    fig.colorbar(im_right, ax=ax_right, label='Change from baseline (dB)')
+    fig.colorbar(im_right, ax=ax_right, label=legend_label)
 
     # Plot the percentage change difference for Left + Right STN
     im_both = ax_both.imshow(avg_diff_both, aspect='auto', origin='lower', 
@@ -1066,7 +1180,7 @@ def perc_pow_diff_cond(
     ax_both.set_xlabel(xlabel)
     ax_both.set_ylabel('Frequency (Hz)')
     ax_both.set_title(f'Left + Right STN - {dbs_status}')
-    fig.colorbar(im_both, ax=ax_both, label='Change from baseline (dB)')
+    fig.colorbar(im_both, ax=ax_both, label=legend_label)
 
     # add significant clusters on the plot if group-level analysis:
     if sub_num > 1:
@@ -1171,7 +1285,8 @@ def eeg_perc_pow_diff_cond(
         show_fig: bool = None,
         add_rt: bool = True,
         add_ssd: bool = True,
-        save_as: str = 'png'
+        save_as: str = 'png',
+        baseline_correction_method: str = 'group_average'
         ):
         
     """
@@ -1190,14 +1305,27 @@ def eeg_perc_pow_diff_cond(
     """
     
     all_diff = []
+    latency_matched = False
 
-    epoch_type1 = epoch_cond1.split('_')[0]
-    outcome_str1 = epoch_cond1.split('_')[1]
-    epoch_type2 = epoch_cond2.split('_')[0]
-    outcome_str2 = epoch_cond2.split('_')[1]
-
-    outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
-    outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
+    if epoch_cond1 == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type1 = 'GO'
+        outcome_str1 = 'successful'
+        outcome1 = 1.0
+    else:
+        epoch_type1 = epoch_cond1.split('_')[0]
+        outcome_str1 = epoch_cond1.split('_')[1]
+        outcome1 = 1.0 if outcome_str1 == "successful" else 0.0
+    
+    if epoch_cond2 == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type2 = 'GO'
+        outcome_str2 = 'successful'
+        outcome2 = 1.0
+    else:
+        epoch_type2 = epoch_cond2.split('_')[0]
+        outcome_str2 = epoch_cond2.split('_')[1]
+        outcome2 = 1.0 if outcome_str2 == "successful" else 0.0
 
     if add_rt:
         if epoch_cond1 not in ['GS_successful', 'stop_successful']:
@@ -1239,6 +1367,13 @@ def eeg_perc_pow_diff_cond(
             outcome_mask1 = epochs.metadata["key_resp_experiment.corr"] == outcome1   # '1.0'
             data1 = epochs[type_mask1 & outcome_mask1]
 
+            if latency_matched and epoch_cond1 == 'lm_GO_successful':
+                rt = data1.metadata['key_resp_experiment.rt'].values
+                # get indexes of 50% slowest trials and only keep these in the data object
+                slowest_trials = np.percentile(rt, 50)
+                slow_mask = rt >= slowest_trials
+                data1 = data1[slow_mask]
+
             if add_rt_cond1:
                 sub_RT1 = get_rt_for_plot(data1, epoch_cond1)
                 all_sub_RT1.append(sub_RT1)
@@ -1254,6 +1389,13 @@ def eeg_perc_pow_diff_cond(
             type_mask2 = epochs.metadata["event"] == epoch_type2
             outcome_mask2 = epochs.metadata["key_resp_experiment.corr"] == outcome2
             data2 = epochs[type_mask2 & outcome_mask2]
+
+            if latency_matched and epoch_cond2 == 'lm_GO_successful':
+                rt = data2.metadata['key_resp_experiment.rt'].values
+                # get indexes of 50% slowest trials and only keep these in the data object
+                slowest_trials = np.percentile(rt, 50)
+                slow_mask = rt >= slowest_trials
+                data2 = data2[slow_mask]
 
             if add_rt_cond2:
                 sub_RT2 = get_rt_for_plot(data2, epoch_cond2)
@@ -1273,7 +1415,8 @@ def eeg_perc_pow_diff_cond(
                     cond = epoch_cond1,
                     ch_of_interest = ch_of_interest,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
             (percentage_change_ep2, 
@@ -1283,7 +1426,8 @@ def eeg_perc_pow_diff_cond(
                     cond = epoch_cond2,
                     ch_of_interest = ch_of_interest,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
             # Differences between Cond1 and Cond2 left and right STN
@@ -1293,14 +1437,27 @@ def eeg_perc_pow_diff_cond(
 
             subs_included.append(subject)
 
-
     print(f'Subs included in analyses: \n {subs_included}')
-
-    all_diff_array = np.array(all_diff)  # shape: (n sub, n freqs, n times)
+    #all_diff_array = np.array(all_diff)  # shape: (n sub, n freqs, n times)
+    shapes = [arr.shape for arr in all_diff]
+    if len(set(shapes)) != 1:
+        print("Warning: TFR arrays have different shapes across subjects:")
+        for i, s in enumerate(shapes):
+            print(f"  Subject {i}: {s}")
+        # Option 1: find minimal common shape and crop all to that
+        min_freqs = min(s[0] for s in shapes)
+        min_times = min(s[1] for s in shapes)
+        all_diff = np.array([arr[:min_freqs, :min_times] for arr in all_diff])
+        # also crop the corresponding time vector ---
+        if isinstance(times, np.ndarray):
+            times = times[:min_times]    
+    else:
+        all_diff = np.stack(all_diff)
+    print(f'all diff shape after stacking: {all_diff.shape}')
 
     time_indices = (times >= t_min_max[0]) & (times <= t_min_max[1])
     sliced_times = times[time_indices]
-    all_diff_array_sliced = all_diff_array[:,:,time_indices]
+    all_diff_array_sliced = all_diff[:,:,time_indices]
 
     # Average the percentage signal changes across subjects for left STN and for right STN
     avg_diff = np.nanmean(all_diff_array_sliced, axis=0)
@@ -1310,8 +1467,8 @@ def eeg_perc_pow_diff_cond(
         print(n_obs)
         pval = 0.05
         df = n_obs - 1
-        #threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
-        threshold = None
+        threshold = scipy.stats.t.ppf(1-pval / 2, df) # two-tailed distribution
+        #threshold = None
         n_permutations = 1000
 
         # Compute permutation cluster test for the left stn
@@ -1375,7 +1532,6 @@ def eeg_perc_pow_diff_cond(
                 mask[c] = True
                 plt.contour(mask, levels=[0.5], colors='black', linewidths=1.5,
                             extent=[t_min_max[0], t_min_max[-1], tfr_args["freqs"][0], tfr_args["freqs"][-1]])
-
 
     if add_rt_cond1:
         # Average mean RT across subjects
@@ -1575,7 +1731,8 @@ def tfr_pow_change_cond(
         show_fig: bool = False,
         add_rt: bool = True, 
         add_ssd: bool = True, 
-        save_as: str = 'png'
+        save_as: str = 'png',
+        baseline_correction_method: str = 'single_trial'
         ):
 
     
@@ -1616,44 +1773,37 @@ def tfr_pow_change_cond(
     all_percentage_change_both = []
     subs_included = []
 
-    # Parse epoch condition
-    epoch_type, outcome_str = epoch_cond.split('_')
-    outcome = 1.0 if outcome_str == "successful" else 0.0
-
-    if add_rt:
-        if epoch_cond not in ['GS_successful', 'stop_successful']:
-            add_rt_cond = True
-            all_sub_RT = []
-        else:
-            add_rt_cond = False
-    else: 
-        add_rt_cond = False
-
-    if add_ssd:
-        if epoch_cond in ['GS_successful', 'GS_unsuccessful', 'GC_successful', 'GC_unsuccessful']:
-            add_ssd_cond = True
-            all_sub_SSD = []
-        else: 
-            add_ssd_cond = False
-    else:
-        add_ssd_cond = False
+    # prepare variables of interest:
+    # create a dictionnary containing the parameters:
+    param_dict = get_parameters_for_condition(epoch_cond, add_rt, add_ssd)
 
     for subject, epochs in sub_dict.items():
         if dbs_status in subject:
-            type_mask = epochs.metadata["event"] == epoch_type
-            outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
+            type_mask = epochs.metadata["event"] == param_dict['epoch_type']
+            outcome_mask = epochs.metadata["key_resp_experiment.corr"] == param_dict['outcome']
             data = epochs[type_mask & outcome_mask]
 
-            if add_rt_cond: 
+            if param_dict['latency_matched']:
+                print(f"{param_dict['epoch_type']}: before latency filter = {len(data)} epochs")
+                rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+                print(f"RT shape = {rt.shape}, first few RTs = {rt[:5]}")
+                threshold = np.percentile(rt, 50)
+                print(f"Median RT = {threshold:.3f}s")
+                slow_mask = rt >= threshold
+                print(f"{slow_mask.sum()} epochs slower than median")
+                # Ensure mask alignment to metadata
+                data = data[slow_mask]  
+                
+            if param_dict['add_rt_cond']: 
                 sub_RT = get_rt_for_plot(data, epoch_cond)
-                all_sub_RT.append(sub_RT)
-            if add_ssd_cond:
+                param_dict['all_sub_RT'].append(sub_RT)
+            if param_dict['add_ssd_cond']:
                 if epoch_cond in ['GS_successful', 'GS_unsuccessful']:
                     column_name = 'stop_signal_time'
                 else:
                     column_name = 'continue_signal_time'
                 sub_SSD = epochs.metadata[column_name].mean() * 1000
-                all_sub_SSD.append(sub_SSD)
+                param_dict['all_sub_SSD'].append(sub_SSD)
             
             print(f"Data found: {len(data)} epochs loaded for {epoch_cond}")
 
@@ -1664,7 +1814,8 @@ def tfr_pow_change_cond(
                     epochs = epochs,
                     cond = epoch_cond,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
             # Append each subject's percentage change to the lists
@@ -1714,16 +1865,27 @@ def tfr_pow_change_cond(
     title_prefix = "Power change" if baseline_correction else "Power"
     bc_note = "" if baseline_correction else ", no baseline correction"
     subject_info = f"nSub = {sub_num}" if sub_num > 1 else subject[:6]
-    fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
+    if param_dict['latency_matched']:
+        fig.suptitle(f"{title_prefix} - {param_dict['outcome_str']} latency-matched {param_dict['epoch_type']}, {subject_info}{bc_note}")
+    else:
+        fig.suptitle(f"{title_prefix} - {param_dict['outcome_str']} {param_dict['epoch_type']}, {subject_info}{bc_note}")
 
     # Set the x label based on what the epochs are centered on:
-    if epoch_type == 'stop':
+    if param_dict['epoch_type'] == 'stop':
         xlabel = 'Time from STOP cue (ms)'
-    elif epoch_type == 'continue':
+    elif param_dict['epoch_type'] == 'continue':
         xlabel = 'Time from CONTINUE cue (ms)'
     else:
         xlabel = 'Time from GO cue (ms)'
-        
+
+    if baseline_correction:
+        if baseline_correction_method == 'single_trial':
+            legend_label = 'Change from baseline (dB)'
+        elif baseline_correction_method == 'group_average':
+            legend_label = 'Percent change from baseline (%)'
+    else:
+        legend_label = 'Mean Power (µV²)'
+
     # Plot Left STN
     vmin, vmax = (vmin_vmax if baseline_correction else (min_values_left, max_values_left))
     im_left = ax_left.imshow(sliced_data_left, aspect='auto', origin='lower', 
@@ -1732,7 +1894,7 @@ def tfr_pow_change_cond(
     ax_left.set_xlabel(xlabel)
     ax_left.set_ylabel('Frequency (Hz)')
     ax_left.set_title(f'Left STN - {dbs_status}')
-    fig.colorbar(im_left, ax=ax_left, label='Change from baseline (dB)' if baseline_correction else 'Mean Power (µV²)')
+    fig.colorbar(im_left, ax=ax_left, label=legend_label)
 
 
     # Plot Right STN
@@ -1743,7 +1905,7 @@ def tfr_pow_change_cond(
     ax_right.set_xlabel(xlabel)
     ax_right.set_ylabel('Frequency (Hz)')
     ax_right.set_title(f'Right STN - {dbs_status}')
-    fig.colorbar(im_right, ax=ax_right, label='Change from baseline (dB)' if baseline_correction else 'Mean Power (µV²)')
+    fig.colorbar(im_right, ax=ax_right, label=legend_label)
 
 
     # Plot Both STN
@@ -1754,17 +1916,17 @@ def tfr_pow_change_cond(
     ax_both.set_xlabel(xlabel)
     ax_both.set_ylabel('Frequency (Hz)')
     ax_both.set_title(f'Left + Right STN - {dbs_status}')
-    fig.colorbar(im_both, ax=ax_both, label='Change from baseline (dB)' if baseline_correction else 'Mean Power (µV²)')
+    fig.colorbar(im_both, ax=ax_both, label=legend_label)
 
 
 
     # Add RT or SSD lines
-    if add_rt_cond:
-        mean_RT = np.mean(all_sub_RT)
+    if param_dict['add_rt_cond']:
+        mean_RT = np.mean(param_dict['all_sub_RT'])
         for ax in (ax_left, ax_right, ax_both):
             ax.axvline(mean_RT, color='black', linestyle='--', label=f'Mean RT {epoch_cond}')
-    if add_ssd_cond:
-        mean_SSD = np.mean(all_sub_SSD)
+    if param_dict['add_ssd_cond']:
+        mean_SSD = np.mean(param_dict['all_sub_SSD'])
         for ax in (ax_left, ax_right, ax_both):
             ax.axvline(mean_SSD, color='black', linestyle='-', label=f'Mean SSD {epoch_cond}')
 
@@ -1776,7 +1938,10 @@ def tfr_pow_change_cond(
 
     # Save figure if needed
     if saving_path:
-        figtitle_base = f"{outcome_str}_{epoch_type}_{dbs_status}"
+        if param_dict['latency_matched']:
+            figtitle_base = f"{param_dict['outcome_str']}_latency_matched_{param_dict['epoch_type']}_{dbs_status}"
+        else:
+            figtitle_base = f"{param_dict['outcome_str']}_{param_dict['epoch_type']}_{dbs_status}"
         if sub_num == 1:
             figtitle_base = f"{subject[:6]}_" + figtitle_base
         if baseline_correction:
@@ -1808,7 +1973,8 @@ def eeg_tfr_pow_change_cond(
         show_fig: bool = False,
         add_rt: bool = True, 
         add_ssd: bool = True, 
-        save_as: str = 'png'
+        save_as: str = 'png',
+        baseline_correction_method: str = 'group_average'
         ):
 
     
@@ -1846,10 +2012,17 @@ def eeg_tfr_pow_change_cond(
     # Prepare containers
     all_percentage_change = []
     subs_included = []
+    latency_matched = False
 
     # Parse epoch condition
-    epoch_type, outcome_str = epoch_cond.split('_')
-    outcome = 1.0 if outcome_str == "successful" else 0.0
+    if epoch_cond == 'lm_GO_successful':
+        latency_matched = True
+        epoch_type = 'GO'
+        outcome_str = 'successful'
+        outcome = 1.0
+    else:
+        epoch_type, outcome_str = epoch_cond.split('_')
+        outcome = 1.0 if outcome_str == "successful" else 0.0
 
     if add_rt:
         if epoch_cond not in ['GS_successful', 'stop_successful']:
@@ -1875,6 +2048,13 @@ def eeg_tfr_pow_change_cond(
             outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
             data = epochs[type_mask & outcome_mask]
 
+            if latency_matched:
+                rt = data.metadata['key_resp_experiment.rt'].values
+                # get indexes of 50% slowest trials and only keep these in the data object
+                slowest_trials = np.percentile(rt, 50)
+                slow_mask = rt >= slowest_trials
+                data = data[slow_mask]
+
             if add_rt_cond: 
                 sub_RT = get_rt_for_plot(data, epoch_cond)
                 all_sub_RT.append(sub_RT)
@@ -1895,11 +2075,13 @@ def eeg_tfr_pow_change_cond(
                     cond = epoch_cond,
                     ch_of_interest = ch_of_interest,
                     tfr_args = tfr_args,
-                    baseline_correction = baseline_correction
+                    baseline_correction = baseline_correction,
+                    baseline_correction_method = baseline_correction_method
                 )
 
             # Append each subject's percentage change to the lists
             all_percentage_change.append(percentage_change)
+            
             print(f'length all percentage change: {len(all_percentage_change)}')
             subs_included.append(subject)
 
@@ -1908,7 +2090,22 @@ def eeg_tfr_pow_change_cond(
     #print(f'all percentage change shape: {all_percentage_change.shape}')
     # Convert to arrays (shape: (n_subs, n_freqs, n_times))
     #all_percentage_change = np.stack(all_percentage_change)
-    all_percentage_change = np.array(all_percentage_change)
+    # all_percentage_change = np.array(all_percentage_change)
+    # Ensure all arrays have same shape before stacking
+    shapes = [arr.shape for arr in all_percentage_change]
+    if len(set(shapes)) != 1:
+        print("Warning: TFR arrays have different shapes across subjects:")
+        for i, s in enumerate(shapes):
+            print(f"  Subject {i}: {s}")
+        # Option 1: find minimal common shape and crop all to that
+        min_freqs = min(s[0] for s in shapes)
+        min_times = min(s[1] for s in shapes)
+        all_percentage_change = np.array([arr[:min_freqs, :min_times] for arr in all_percentage_change])
+        # also crop the corresponding time vector ---
+        if isinstance(times, np.ndarray):
+            times = times[:min_times]    
+    else:
+        all_percentage_change = np.stack(all_percentage_change)
     print(f'all percentage change shape after stacking: {all_percentage_change.shape}')    
 
     # Compute grand averages
@@ -1955,7 +2152,14 @@ def eeg_tfr_pow_change_cond(
     plt.xlabel(xlabel)
     plt.ylabel('Frequency (Hz)')
     plt.title(f"{title_prefix} - {outcome_str} {epoch_type} {ch_of_interest} channel, {subject_info}{bc_note}")
-    plt.colorbar(label='Change from baseline (dB)' if baseline_correction else 'Mean Power (µV²)')
+    if baseline_correction:
+        if baseline_correction_method == 'single_trial':
+            colorbar_label = 'Change from baseline (dB)'
+        else:
+            colorbar_label = 'Percent change from baseline (%)'
+    else:
+        colorbar_label = 'Mean Power (µV²)'
+    plt.colorbar(label=colorbar_label)
 
     # Add RT or SSD lines
     if add_rt_cond:
@@ -1972,7 +2176,7 @@ def eeg_tfr_pow_change_cond(
     plt.legend()
     # Save figure if needed
     if saving_path:
-        figtitle_base = f"{outcome_str}_{epoch_type}_{dbs_status}_{ch_of_interest}"
+        figtitle_base = f"{epoch_cond}_{dbs_status}_{ch_of_interest}"
         if sub_num == 1:
             figtitle_base = f"{subject[:6]}_" + figtitle_base
         if baseline_correction:

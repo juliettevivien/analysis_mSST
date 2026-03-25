@@ -6,8 +6,8 @@ from functions import io
 
 
 def main_convert_xdf_to_set(
-    session_ID="C005",
-    fname_external="sub-C005_ses-mSST_noDBS_task-Default_run-001_eeg.xdf",
+    session_ID="C013",
+    fname_external="sub-C013_ses-mSST_task-Default_run-001_eeg.xdf",
 ):
 
     """
@@ -37,8 +37,10 @@ def main_convert_xdf_to_set(
 
     # #  Set source path
     # source_path = join(working_path, "sourcedata")
-    source_path = f"C:\\Users\\Juliette\\OneDrive - Charité - Universitätsmedizin Berlin\\DATA\\{session_ID}\\raw_data\\XDF\\mSST"
+    source_path = f"C:\\Users\\Juliette\\OneDrive - Charité - Universitätsmedizin Berlin\\DATA\\{session_ID}\\raw_data\\XDF"
+    # source_path = "E:"
     saving_path = f"C:\\Users\\Juliette\\OneDrive - Charité - Universitätsmedizin Berlin\\DATA\\{session_ID}\\synced_data\\{session_ID} mSST"
+    # saving_path = source_path
     if not os.path.isdir(saving_path):
         os.makedirs(saving_path)
 

@@ -86,7 +86,7 @@ def find_EEG_stream(fpath_external, stream_name):
 
 def write_set(fname, raw, annotations_onset):
     """Export raw to EEGLAB .set file."""
-    data = raw.get_data() * 1e6  # convert to microvolts
+    data = raw.get_data()
     fs = raw.info["sfreq"]
     times = raw.times
     ch_names = raw.info["ch_names"]

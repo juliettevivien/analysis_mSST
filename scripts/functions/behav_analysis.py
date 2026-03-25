@@ -430,48 +430,49 @@ def correlate_ssrt_prep_cost(
     plt.savefig(join(saving_path, f'ssrt_prep_cost_correlation.{save_as}'), dpi=300)
     plt.close()
 
-def correlate_ssrt_bis(
+def correlate_behav_measure_with_scale(
         stats,
         sub_scale_dict,
+        behav_measure_name,
+        scale_name,
         subject_colors,
-        bis_scale_name,
         color_dict,
         saving_path,
         save_as
     ):
-    ssrt_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
-    bis_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
+    behav_measure_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
+    scale_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
 
     plt.figure(figsize=(8, 6))
     for subject in stats.keys():
         cond = 'control' if subject.startswith('C') else ('DBS ON' if 'ON' in subject else 'DBS OFF')
         marker = 's' if cond == 'control' else ('o' if cond == 'DBS ON' else '^')
-        ssrt = stats[subject]['SSRT (ms)']
-        bis_score = sub_scale_dict[subject.split(' ')[0]][bis_scale_name]
-        plt.scatter(bis_score, ssrt, color = subject_colors[subject.split(' ')[0]], s=100, marker=marker)
+        behav_measure = stats[subject][behav_measure_name]
+        scale_measure = sub_scale_dict[subject.split(' ')[0]][scale_name]
+        plt.scatter(behav_measure, scale_measure, color = subject_colors[subject.split(' ')[0]], s=100, marker=marker)
 
-        ssrt_dict[cond].append(ssrt)
-        bis_dict[cond].append(bis_score)
+        behav_measure_dict[cond].append(behav_measure)
+        scale_dict[cond].append(scale_measure)
 
     # fit linear regression line for each condition:
     for cond in ['control', 'DBS ON', 'DBS OFF']:
-        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(bis_dict[cond], ssrt_dict[cond])
-        plt.plot(bis_dict[cond], intercept + slope * np.array(bis_dict[cond]), color = color_dict[cond])
+        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict[cond], scale_dict[cond])
+        plt.plot(behav_measure_dict[cond], intercept + slope * np.array(behav_measure_dict[cond]), color = color_dict[cond])
 
     # fit linear regression line across all conditions:        
-    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(bis_dict['control'] + bis_dict['DBS ON'] + bis_dict['DBS OFF'], ssrt_dict['control'] + ssrt_dict['DBS ON'] + ssrt_dict['DBS OFF'])
-    plt.plot(bis_dict['control'] + bis_dict['DBS ON'] + bis_dict['DBS OFF'], intercept + slope * np.array(bis_dict['control'] + bis_dict['DBS ON'] + bis_dict['DBS OFF']), 'black', label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}')
+    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], scale_dict['control'] + scale_dict['DBS ON'] + scale_dict['DBS OFF'])
+    plt.plot(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], intercept + slope * np.array(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF']), 'black', label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}')
 
-    plt.xlabel(f'{bis_scale_name} Score')
-    plt.ylabel('SSRT (ms)')
-    plt.title(f'Correlation between {bis_scale_name} and SSRT\nLinear fit group: r={r_value:.2f}, p={p_value:.3f}')
+    plt.ylabel(f'{scale_name} Score')
+    plt.xlabel(f'{behav_measure_name}')
+    plt.title(f'Correlation between {scale_name} and {behav_measure_name}\nLinear fit group: r={r_value:.2f}, p={p_value:.3f}')
     markers=["s","o","^"]
     f = lambda m,c: plt.plot([],[],marker=m, color=c, ls="none")[0]
     handles = [f(markers[i], "k") for i in range(3)]
     labels = ["control", "dbs on", "dbs off"]
     plt.legend(handles, labels, loc=3, framealpha=1)
     plt.tight_layout()
-    plt.savefig(join(saving_path, f'ssrt_{bis_scale_name}_correlation.{save_as}'), dpi=300)
+    plt.savefig(join(saving_path, f'{behav_measure_name}_{scale_name}_correlation.{save_as}'), dpi=300)
     plt.close()
 
 def plot_variable_of_interest(
@@ -580,3 +581,198 @@ def plot_variable_of_interest(
     plt.tight_layout()
     plt.savefig(join(saving_path, f"{variable_of_interest} - Colored by {colored_by}.{save_as}"), dpi=300)
     plt.close()
+
+def plot_rt_all(
+    stats,
+    color_dict,
+    subject_colors,
+    colored_by,
+    saving_path,
+    save_as
+):
+    # Initialize empty dictionaries
+    stats_OFF = {}
+    stats_ON = {}
+    stats_CONTROL = {}
+    stats_PREOP = {}
+
+    # Loop through the original dictionary and filter into sub-dictionaries
+    for key, value in stats.items():
+        if "OFF" in key:
+            stats_OFF[key] = value
+        elif "ON" in key:
+            stats_ON[key] = value
+        elif "C" in key:
+            stats_CONTROL[key] = value
+        elif "preop" in key:
+            stats_PREOP[key] = value
+
+    # Define conditions and corresponding dictionaries
+    conditions = {
+        'control': stats_CONTROL,
+        'DBS OFF': stats_OFF,
+        'DBS ON': stats_ON,
+    }
+
+    # Initialize dictionaries to hold results for each condition
+    results = {condition: {} for condition in conditions.keys()}
+    # Loop through each condition and subject
+    for condition, data_dict in conditions.items():
+        for subject_id, metrics in data_dict.items():
+            # Extract the subject ID (first part of subject_id before the first space)
+            sub_id = subject_id.split()[0]
+            # Retrieve the required metrics and store them in the result dictionary
+            go_rt = metrics['go_trial mean RT (ms)']
+            gc_rt = metrics['go_continue_trial mean RT (ms)']
+            gs_rt = metrics['stop_trial mean RT (ms)']
+            gf_rt = metrics['go_fast_trial mean RT (ms)']
+            results[condition][sub_id] = {
+                'go_rt': go_rt,
+                'gc_rt': gc_rt,
+                'gs_rt': gs_rt,
+                'gf_rt': gf_rt
+            }
+
+    plt.figure(figsize=(15, 5))
+    for i, trial_type in enumerate(['go_rt', 'gc_rt', 'gs_rt', 'gf_rt']):
+        plt.subplot(1, 4, i+1)
+        for condition, subject_dict in results.items():
+            for subject_id, metrics in subject_dict.items():
+                rt = metrics[trial_type]
+                if colored_by == 'subject':
+                    # add a line to connect the points for the same subject across conditions:
+                    subject_conditions = []
+                    subject_rts = []
+                    for cond, sub_dict in results.items():
+                        if subject_id in sub_dict:
+                            subject_conditions.append(cond)
+                            subject_rts.append(sub_dict[subject_id][trial_type])
+                    plt.plot(subject_conditions, subject_rts, color=subject_colors[subject_id], alpha=0.5)
+                    plt.scatter(condition, rt, color=subject_colors[subject_id], s=100, zorder=50)
+
+                elif colored_by == 'condition':
+                    # add a line to connect the points for the same subject across conditions:
+                    subject_conditions = []
+                    subject_rts = []
+                    for cond, sub_dict in results.items():
+                        if subject_id in sub_dict:
+                            subject_conditions.append(cond)
+                            subject_rts.append(sub_dict[subject_id][trial_type])
+                    plt.plot(subject_conditions, subject_rts, color='lightgray', alpha=0.5)                                    
+                    plt.scatter(condition, rt, color=color_dict[condition], s=100, zorder=50)
+                
+                # also add mean and std for each condition:
+                condition_rts = [subject_dict[sub_id][trial_type] for sub_id in subject_dict.keys()]
+                mean_rt = np.mean(condition_rts)
+                std_rt = np.std(condition_rts)
+                plt.errorbar(condition, mean_rt, yerr=std_rt, color='black', capsize=5, linewidth=2, zorder=100)
+                plt.scatter(condition, mean_rt, color='black', marker = '_', s=100, zorder=101)                    
+
+        plt.title(trial_type[0].capitalize() + trial_type[1].capitalize() + ' mean RT')
+        plt.ylabel('Reaction Time (ms)')
+        plt.ylim(300, 1000)
+    plt.suptitle('Reaction Times for all trial types\n Mean ± std', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(join(saving_path, f"RTs_all_trials_colored_by_{colored_by}.{save_as}"), dpi=300)
+    plt.close()
+
+def plot_perf_all(
+    stats,
+    color_dict,
+    subject_colors,
+    colored_by,
+    saving_path,
+    save_as        
+):
+    # Initialize empty dictionaries
+    stats_OFF = {}
+    stats_ON = {}
+    stats_CONTROL = {}
+    stats_PREOP = {}
+
+    # Loop through the original dictionary and filter into sub-dictionaries
+    for key, value in stats.items():
+        if "OFF" in key:
+            stats_OFF[key] = value
+        elif "ON" in key:
+            stats_ON[key] = value
+        elif "C" in key:
+            stats_CONTROL[key] = value
+        elif "preop" in key:
+            stats_PREOP[key] = value
+
+    # Define conditions and corresponding dictionaries
+    conditions = {
+        'control': stats_CONTROL,
+        'DBS OFF': stats_OFF,
+        'DBS ON': stats_ON,
+    }
+
+    # Initialize dictionaries to hold results for each condition
+    results = {condition: {} for condition in conditions.keys()}
+    # Loop through each condition and subject
+    for condition, data_dict in conditions.items():
+        for subject_id, metrics in data_dict.items():
+            # Extract the subject ID (first part of subject_id before the first space)
+            sub_id = subject_id.split()[0]
+            # Retrieve the required metrics and store them in the result dictionary
+            go_correct = metrics['percent correct go_trial']
+            gc_correct = metrics['percent correct go_continue_trial']
+            gs_correct = metrics['percent correct stop_trial']
+            gf_correct = metrics[ 'percent correct go_fast_trial']
+            results[condition][sub_id] = {
+                'go_correct': go_correct,
+                'gc_correct': gc_correct,
+                'gs_correct': gs_correct,
+                'gf_correct': gf_correct
+            }
+
+    plt.figure(figsize=(15, 5))
+    for i, trial_type in enumerate(['go_correct', 'gc_correct', 'gs_correct', 'gf_correct']):
+        plt.subplot(1, 4, i+1)
+        if trial_type == 'go_correct':
+            plt.axhline(y=70, color='lightgray', linestyle='--', linewidth=1, label ='70% threshold')
+            plt.legend(loc='upper right')  
+        if trial_type == 'gs_correct':
+            plt.axhline(y=35, color='lightgray', linestyle='--', linewidth=1, label ='35-65% threshold')    
+            plt.axhline(y=65, color='lightgray', linestyle='--', linewidth=1)
+            plt.legend(loc='upper right')    
+        for condition, subject_dict in results.items():
+            for subject_id, metrics in subject_dict.items():
+                rt = metrics[trial_type]
+                if colored_by == 'subject':
+                    # add a line to connect the points for the same subject across conditions:
+                    subject_conditions = []
+                    subject_rts = []
+                    for cond, sub_dict in results.items():
+                        if subject_id in sub_dict:
+                            subject_conditions.append(cond)
+                            subject_rts.append(sub_dict[subject_id][trial_type])
+                    plt.plot(subject_conditions, subject_rts, color=subject_colors[subject_id], alpha=0.5)
+                    plt.scatter(condition, rt, color=subject_colors[subject_id], s=100, zorder=50)
+
+                elif colored_by == 'condition':
+                    # add a line to connect the points for the same subject across conditions:
+                    subject_conditions = []
+                    subject_rts = []
+                    for cond, sub_dict in results.items():
+                        if subject_id in sub_dict:
+                            subject_conditions.append(cond)
+                            subject_rts.append(sub_dict[subject_id][trial_type])
+                    plt.plot(subject_conditions, subject_rts, color='lightgray', alpha=0.5)                                    
+                    plt.scatter(condition, rt, color=color_dict[condition], s=100, zorder=50)
+                
+                # also add mean and std for each condition:
+                condition_rts = [subject_dict[sub_id][trial_type] for sub_id in subject_dict.keys()]
+                mean_rt = np.mean(condition_rts)
+                std_rt = np.std(condition_rts)
+                plt.errorbar(condition, mean_rt, yerr=std_rt, color='black', capsize=5, linewidth=2, zorder=100)
+                plt.scatter(condition, mean_rt, color='black', marker = '_', s=100, zorder=101)                    
+
+        plt.title(trial_type[0].capitalize() + trial_type[1].capitalize() + ' % correct')
+        plt.ylabel('Percentage Correct')
+        plt.ylim(30, 110)
+    plt.suptitle('Percentage Correct for all trial types\n Mean ± std', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(join(saving_path, f"Performance_all_trials_colored_by_{colored_by}.{save_as}"), dpi=300)
+    plt.close()    
