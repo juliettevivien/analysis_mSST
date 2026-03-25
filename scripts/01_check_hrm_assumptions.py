@@ -27,9 +27,9 @@ included_subjects = [
     #'preop001 mSST',  # preop group hasn't really be recorded, let's discard for now
 
     # 'C001 mSST', 'C002 mSST', # pilot participants
-    'C003 mSST', 'C004 mSST', 'C006 mSST', 
+    'C003 mSST', 'C004 mSST', 'C005 mSST', 'C006 mSST', 
     'C007 mSST','C008 mSST','C009 mSST', 
-    'C010 mSST', 'C011 mSST', 'C012 mSST',
+    'C010 mSST', 'C011 mSST', 'C012 mSST', 'C013 mSST',
     'sub006 DBS ON mSST', 'sub006 DBS OFF mSST', 
     #'sub007 DBS OFF mSST', # no ON session
     'sub008 DBS ON mSST', 'sub008 DBS OFF mSST', 
