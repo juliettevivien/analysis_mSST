@@ -21,6 +21,7 @@ color_dict = {
     }
 
 # pick tests to run:
+RUN_ALL = True
 scales_visualization = False
 scales_correlation = False
 visualize_updrs = False
@@ -28,8 +29,27 @@ visualize_rt_distribution = False
 visualize_rt_distribution_overlapped = False
 correlate_ssrt_prep_cost = False
 correlate_ssrt_bis = False
-plot_prep_cost = True
-plot_ssrt = True
+correlate_prep_cost_bis = False
+plot_prep_cost = False
+plot_ssrt = False
+plot_rt = False
+plot_perf = False
+plot_early_press = True
+
+if RUN_ALL:
+    scales_visualization = True
+    scales_correlation = True
+    visualize_updrs = True
+    visualize_rt_distribution = True
+    visualize_rt_distribution_overlapped = True
+    correlate_ssrt_prep_cost = True
+    correlate_ssrt_bis = True
+    correlate_prep_cost_bis = True
+    plot_prep_cost = True
+    plot_ssrt = True
+    plot_rt = True
+    plot_perf = True
+    plot_early_press = True
 
 # set paths
 onedrive_path = utils._get_onedrive_path()
@@ -190,46 +210,92 @@ if correlate_ssrt_bis:
     temp_save = join(behav_results_saving_path, "correlations")
     if not os.path.isdir(temp_save):
         os.makedirs(temp_save)    
-    behav_analysis.correlate_ssrt_bis(
+    behav_analysis.correlate_behav_measure_with_scale(
         stats = stats,
         sub_scale_dict = sub_scale_dict,
         subject_colors = subject_colors,
-        bis_scale_name = 'BIS_TOTAL',
+        behav_measure_name = 'SSRT (ms)',
+        scale_name = 'BIS_TOTAL',
         color_dict = color_dict,
         saving_path = temp_save,
         save_as = save_as
     )
-    behav_analysis.correlate_ssrt_bis(
+    behav_analysis.correlate_behav_measure_with_scale(
         stats = stats,
         sub_scale_dict = sub_scale_dict,
         subject_colors = subject_colors,
-        bis_scale_name = 'BIS_nonplanning',
+        behav_measure_name = 'SSRT (ms)',
+        scale_name = 'BIS_nonplanning',
         color_dict = color_dict,
         saving_path = temp_save,
         save_as = save_as
     )    
-    behav_analysis.correlate_ssrt_bis(
+    behav_analysis.correlate_behav_measure_with_scale(
         stats = stats,
         sub_scale_dict = sub_scale_dict,
         subject_colors = subject_colors,
-        bis_scale_name = 'BIS_motor',
+        behav_measure_name = 'SSRT (ms)',
+        scale_name = 'BIS_motor',
         color_dict = color_dict,
         saving_path = temp_save,
         save_as = save_as
     )    
-    behav_analysis.correlate_ssrt_bis(
+    behav_analysis.correlate_behav_measure_with_scale(
         stats = stats,
         sub_scale_dict = sub_scale_dict,
         subject_colors = subject_colors,
-        bis_scale_name = 'BIS_attentional',
+        behav_measure_name = 'SSRT (ms)',
+        scale_name = 'BIS_attentional',
         color_dict = color_dict,
         saving_path = temp_save,
         save_as = save_as
     )        
 
-## TO-DO : make function more flexible to accept one scale 
-# and one task score e.g. to correlate proactive inhibition
-# with BIS non planning
+if correlate_prep_cost_bis:
+    temp_save = join(behav_results_saving_path, "correlations")
+    if not os.path.isdir(temp_save):
+        os.makedirs(temp_save)    
+    behav_analysis.correlate_behav_measure_with_scale(
+        stats = stats,
+        sub_scale_dict = sub_scale_dict,
+        subject_colors = subject_colors,
+        behav_measure_name = 'Preparation cost (ms)',
+        scale_name = 'BIS_TOTAL',
+        color_dict = color_dict,
+        saving_path = temp_save,
+        save_as = save_as
+    )
+    behav_analysis.correlate_behav_measure_with_scale(
+        stats = stats,
+        sub_scale_dict = sub_scale_dict,
+        subject_colors = subject_colors,
+        behav_measure_name = 'Preparation cost (ms)',
+        scale_name = 'BIS_nonplanning',
+        color_dict = color_dict,
+        saving_path = temp_save,
+        save_as = save_as
+    )    
+    behav_analysis.correlate_behav_measure_with_scale(
+        stats = stats,
+        sub_scale_dict = sub_scale_dict,
+        subject_colors = subject_colors,
+        behav_measure_name = 'Preparation cost (ms)',
+        scale_name = 'BIS_motor',
+        color_dict = color_dict,
+        saving_path = temp_save,
+        save_as = save_as
+    )    
+    behav_analysis.correlate_behav_measure_with_scale(
+        stats = stats,
+        sub_scale_dict = sub_scale_dict,
+        subject_colors = subject_colors,
+        behav_measure_name = 'Preparation cost (ms)',
+        scale_name = 'BIS_attentional',
+        color_dict = color_dict,
+        saving_path = temp_save,
+        save_as = save_as
+    )        
+
 
 if plot_prep_cost:
     variable_of_interest = 'Preparation cost (ms)'
@@ -260,3 +326,47 @@ if plot_ssrt:
         saving_path = temp_save,
         save_as = save_as
     )    
+
+if plot_rt:
+    temp_save = join(behav_results_saving_path, "Reaction times")
+    if not os.path.isdir(temp_save):
+        os.makedirs(temp_save)    
+    for color in ['condition', 'subject']:    
+        behav_analysis.plot_rt_all(
+            stats = stats,
+            color_dict = color_dict,
+            subject_colors = subject_colors,
+            colored_by = color,
+            saving_path = temp_save,
+            save_as = save_as
+        )    
+
+if plot_perf:
+    temp_save = join(behav_results_saving_path, "Performance")
+    if not os.path.isdir(temp_save):
+        os.makedirs(temp_save)   
+    for color in ['condition', 'subject']:
+        behav_analysis.plot_perf_all(
+            stats = stats,
+            color_dict = color_dict,
+            subject_colors = subject_colors,
+            colored_by = color,
+            saving_path = temp_save,
+            save_as = save_as
+        )    
+
+if plot_early_press:
+    temp_save = join(behav_results_saving_path, "Performance")
+    if not os.path.isdir(temp_save):
+        os.makedirs(temp_save)  
+    variable_of_interest = 'early presses'        
+    for color in ['condition', 'subject']:
+        behav_analysis.plot_variable_of_interest(
+            stats = stats,
+            color_dict = color_dict,
+            subject_colors = subject_colors,
+            variable_of_interest = variable_of_interest,
+            colored_by = color,
+            saving_path = temp_save,
+            save_as = save_as
+        )   
