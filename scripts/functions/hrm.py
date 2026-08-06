@@ -16,7 +16,8 @@ def check_independence_assumption_single_sub(
     excluded_subjects,
     color_dict,
     save_as,
-    saving_path
+    saving_path,
+    show_plot = False
 ):
     # Define trial types to include only Go trials and Stop trials
     trial_types = ['go_trial', 'stop_trial']
@@ -118,7 +119,10 @@ def check_independence_assumption_single_sub(
         plt.title(f'Reaction Times for Subject {subject_id} ({condition.upper()})')
         plt.tight_layout()
         plt.savefig(join(saving_path, f"test_independance_{subject_id}_{condition}.{save_as}"))
-        plt.close()
+        if show_plot:
+            plt.show()
+        else:    
+            plt.close()
 
     # Convert dictionary to DataFrame
     df_p_value_dict = pd.DataFrame(list(p_value_dict.items()), columns=['Subject_test', 'P-Value'])
@@ -136,7 +140,8 @@ def check_independence_assumption_group_level(
         stats, 
         excluded_subjects,
         save_as, 
-        saving_path
+        saving_path,
+        show_plot = False
         ):    
     # paired t-test for Go and Stop trials accross all subjects
     mean_RT_go = []
@@ -237,10 +242,15 @@ def check_independence_assumption_group_level(
     plt.xlabel('')
     plt.tight_layout()
     plt.savefig(join(saving_path, f"independence_assumption_group_level.{save_as}"), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
     with open(join(saving_path, 'results.txt'), 'a') as a:
-        a.write(f"\n\nOverall, participants had a shorter mean RT in unsuccessful STOP trials than in GO trials (t({len(subs)-1}) = {t_stat}, p-value = {p_value}, d = {cohens_d:.2f}). At the individual level, this didn't hold true for 1 subject ({excluded_subjects}) who was therefore removed from subsequent analysis.")
+        a.write(f"\n\nOverall, participants had a shorter mean RT in unsuccessful STOP trials than in GO trials (t({len(subs)-1}) = {t_stat}, p-value = {p_value}, d = {cohens_d:.2f}). At the individual level, this didn't hold true for the following subject(s): ({excluded_subjects}), who was/were therefore removed from subsequent analysis.")
+
+    print((f"Overall, participants had a shorter mean RT in unsuccessful STOP trials than in GO trials (t({len(subs)-1}) = {t_stat}, p-value = {p_value}, d = {cohens_d:.2f}). At the individual level, this didn't hold true for the following subject(s): ({excluded_subjects}), who was/were therefore removed from subsequent analysis."))
 
     return excluded_subjects
 
@@ -250,7 +260,8 @@ def check_independence_assumption_rt_ssd_relation(
         excluded_subjects, 
         color_dict, 
         save_as,
-        saving_path
+        saving_path,
+        show_plot = False
     ):
     p_value_dict_SSD = {}
     new_excluded_subjects = []  
@@ -286,7 +297,10 @@ def check_independence_assumption_rt_ssd_relation(
         plt.legend()
         plt.tight_layout()
         plt.savefig(join(saving_path, f"independence_assumption_RT_SSD_correlation_{subject}.{save_as}"), dpi=300)
-        plt.close()
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
 
         threshold = np.median(SSD) 
         small_ssd = data[data['SSD'] <= threshold]
@@ -332,7 +346,10 @@ def check_independence_assumption_rt_ssd_relation(
         plt.ylabel('Unsuccessful Stop RT (ms)')
         plt.title(f'Comparison of RT by SSD - {subject}')
         plt.savefig(join(saving_path, f"independence_assumption_RT_SSD_boxplot_{subject}.{save_as}"), dpi=300)
-        plt.close()
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
 
     # Convert dictionary to DataFrame
     df_p_value_dict_SSD = pd.DataFrame(list(p_value_dict_SSD.items()), columns=['Subject', 'P-Value'])
@@ -357,7 +374,8 @@ def check_independence_assumption_rt_ssd_relation_group_level(
         stats, 
         excluded_subjects,
         save_as,
-        saving_path
+        saving_path,
+        show_plot = False
     ):
 
     ssds = []
@@ -417,7 +435,10 @@ def check_independence_assumption_rt_ssd_relation_group_level(
     plt.ylabel('Mean RT (Failed STOP Trials) ± std')
     plt.title('RTs on failed STOP trials increase with SSD')
     plt.savefig(join(saving_path, f"group_level_independence_assumption_RT_SSD.{save_as}"), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
     with open(join(saving_path, 'results.txt'), 'w') as a:
         a.write(f"\n\nGroup-level RT-SSD relation:\n")
@@ -428,13 +449,15 @@ def check_independence_assumption_rt_ssd_relation_group_level(
         a.write(f"RT differences between bins: {rt_diffs}\n")
         a.write(f"The differential values were significantly positive (t({df}) =  {t_stat:.3f}, p = {p_value:.4f}) which confirms the prediction of the model, that the RT in unsuccessful STOP trials should lengthen with increasing Stop signal delay (SSD).")
 
+    print(f"The differential values were significantly positive (t({df}) =  {t_stat:.3f}, p = {p_value:.4f}) which confirms the prediction of the model, that the RT in unsuccessful STOP trials should lengthen with increasing Stop signal delay (SSD).")
 
 def check_success_rate(
     stats, 
     excluded_subjects, 
     color_dict,
     save_as,
-    saving_path
+    saving_path,
+    show_plot = False
 ):
     new_excluded_subjects = []
     single_subject = {}
@@ -508,7 +531,10 @@ def check_success_rate(
 
         plt.tight_layout()
         plt.savefig(join(saving_path, f"Performance for {subject_id}.{save_as}"), dpi=300)
-        plt.close()    
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()    
 
     # if another session is available for the excluded subjects, exclude these as well:
     for excluded_sub in new_excluded_subjects:

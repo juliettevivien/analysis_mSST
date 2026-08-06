@@ -53,7 +53,8 @@ def visualize_scales_scores(
     color_dict,
     visualize_by,
     saving_path,
-    save_as
+    save_as,
+    show_plot = False
 ):
     for scale in scale_names:
         if visualize_by == 'subject':
@@ -62,7 +63,7 @@ def visualize_scales_scores(
             # extract the value for each subject and plot it as a dot plot, with a different color for each subject
             for sub in subs:
                 scale_value = sub_scale_dict[sub][scale]
-                print(f'{sub} : {scale_value}')
+                # print(f'{sub} : {scale_value}')
                 if scale_value is not None and not pd.isna(scale_value):
                     plt.scatter(x=sub, y=abs(scale_value), color=subject_colors[sub], s=100)
             plt.xticks(rotation=90)
@@ -70,7 +71,10 @@ def visualize_scales_scores(
             plt.ylabel(f'{scale} score')
             plt.tight_layout()
             plt.savefig(join(saving_path, f'{scale}_scores.{save_as}'), dpi = 300)
-            plt.close()
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
         elif visualize_by == 'condition':
             if scale in ['UPDRS_ON', 'UPDRS_OFF']:
                 continue
@@ -80,7 +84,8 @@ def visualize_scales_scores(
                 scale, 
                 color_dict,
                 saving_path,
-                save_as)    
+                save_as,
+                show_plot)    
 
 def build_long_df(sub_scale_dict):
     rows = []
@@ -110,11 +115,30 @@ def dotplot_group_comparison(
         scale,
         color_dict,
         saving_path,
-        save_as
+        save_as,
+        show_plot = False
         ):
+
+    scale_df = df[df['scale'] == scale]
+
+    # Statistical test: patients vs controls
+    patients = scale_df.loc[scale_df['group'] == 'patient', 'value'].dropna()
+    controls = scale_df.loc[scale_df['group'] == 'control', 'value'].dropna()
+
+    U, p = scipy.stats.mannwhitneyu(
+        patients,
+        controls,
+        alternative='two-sided'
+    )
+
+    print(f"{scale}: Mann–Whitney U test")
+    print(f"Patients n={len(patients)}, Controls n={len(controls)}")
+    print(f"U = {U:.2f}, p = {p:.4f}")
+
     plt.figure(figsize=(6, 5))
+
     sns.stripplot(
-        data=df[df['scale'] == scale],
+        data=scale_df,
         x='group',
         y='value',
         jitter=0.25,
@@ -126,7 +150,7 @@ def dotplot_group_comparison(
     )
 
     sns.pointplot(
-        data=df[df['scale'] == scale],
+        data=scale_df,
         x='group',
         y='value',
         errorbar='sd',
@@ -134,13 +158,16 @@ def dotplot_group_comparison(
         markers='_',
         color='black'
     )
-    plt.suptitle(f"{scale}\n Mean ± std")
+    plt.suptitle(f"{scale}\n Mean ± std \n Mann–Whitney U test: U = {U:.2f}, p = {p:.4f}", fontsize=10)
     plt.xlabel('')
     plt.ylabel('Score')
     # plt.spines[['top', 'right']].set_visible(False)
     plt.tight_layout()
     plt.savefig(join(saving_path, f'{scale}_scores_by_group.{save_as}'), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 def correlate_two_scales(
     scale_1,
@@ -148,7 +175,8 @@ def correlate_two_scales(
     sub_scale_dict,
     subject_colors,
     saving_path,
-    save_as    
+    save_as,
+    show_plot = False    
     ):
         # correlation between SAS and BDI scores across all subjects, with a linear regression line:
         plt.figure(figsize=(10, 6))
@@ -165,7 +193,60 @@ def correlate_two_scales(
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         plt.tight_layout()
         plt.savefig(join(saving_path, f'{scale_1}_{scale_2}_correlation.{save_as}'), dpi=300)
-        plt.close()
+        if show_plot:
+            plt.show()
+        else:
+            plt.close()
+
+# def scale_comparison_pd_hc(
+#         df, 
+#         scale, 
+#         color_dict,
+#         saving_path,
+#         save_as,
+#         show_plot = False
+#         ):
+#     plot_df = df.copy()
+
+#     plot_df["group"] = plot_df.index.to_series().map(
+#         lambda x: "control" if x.startswith("C") else "patient"
+#     )
+
+#     fig, ax = plt.subplots(figsize=(6, 4))
+
+#     sns.stripplot(
+#         data=plot_df,
+#         x="group",
+#         y=scale,
+#         jitter=0.25,
+#         size=7,
+#         palette={
+#             "patient": color_dict["DBS ON"],
+#             "control": color_dict["control"],
+#         },
+#         ax=ax
+#     )
+#     sns.pointplot(
+#         data=plot_df,
+#         x="group",
+#         y=scale,
+#         errorbar="sd",      # or ("ci", 95), "se", etc.
+#         join=False,         # deprecated, see below
+#         markers="_",
+#         color="black",
+#         ax=ax
+#     )
+
+#     ax.set_title(scale)
+#     ax.set_xlabel("")
+#     ax.set_ylabel("Score")
+#     ax.spines[["top", "right"]].set_visible(False)
+#     plt.savefig(join(saving_path, f'Comparison PD and HC - {scale}.{save_as}'), dpi=300)
+#     if show_plot:
+#         plt.show()
+#     else:
+#         plt.close()
+
 
 def visualize_updrs_scores(
     sub_scale_dict, 
@@ -173,8 +254,10 @@ def visualize_updrs_scores(
     color_dict, 
     colored_by,
     saving_path, 
-    save_as
+    save_as,
+    show_plot = False
     ):
+
     updrs_on = []
     updrs_off = []
 
@@ -187,6 +270,19 @@ def visualize_updrs_scores(
 
     updrs_on = np.array(updrs_on)
     updrs_off = np.array(updrs_off)
+
+    # Paired statistical test
+    stat, p = scipy.stats.wilcoxon(
+        updrs_off,
+        updrs_on,
+        alternative='two-sided'
+    )
+
+    print("UPDRS ON vs OFF: Wilcoxon signed-rank test")
+    print(f"n = {len(updrs_on)}")
+    print(f"Statistic = {stat:.2f}, p = {p:.4f}")
+    print(f"OFF median: {np.median(updrs_off)}")
+    print(f"ON median: {np.median(updrs_on)}")
 
     plt.figure(figsize=(4, 5))
 
@@ -219,11 +315,14 @@ def visualize_updrs_scores(
                     color='black', capsize=5, linewidth=2)
 
     plt.ylabel('UPDRS score')
-    plt.title('UPDRS ON vs OFF (Patients)\n Mean ± std')
+    plt.title('UPDRS ON vs OFF (Patients)\n Mean ± std \n Wilcoxon signed-rank test: \n statistic = {:.2f}, p = {:.4f}'.format(stat, p))
     sns.despine()
     plt.tight_layout()
     plt.savefig(join(saving_path, f"updrs_on_off_by_{colored_by}.{save_as}"), dpi = 300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 def visualize_rt_distribution(
     stats, 
@@ -517,20 +616,20 @@ def plot_variable_of_interest(
             # Extract the subject ID (first part of subject_id before the first space)
             sub_id = subject_id.split()[0]
             # Retrieve the required metrics and store them in the result dictionary
-            prep_cost = (metrics[variable_of_interest])
-            results[condition][sub_id] = prep_cost
+            var = (metrics[variable_of_interest])
+            results[condition][sub_id] = var
 
     # Prepare data for DataFrame
     data = []
     for condition, subject_dict in results.items():
-        for subject_id, prep_cost in subject_dict.items():
-            data.append({'Subject': subject_id, 'Condition': condition, variable_of_interest: prep_cost})
+        for subject_id, var in subject_dict.items():
+            data.append({'Subject': subject_id, 'Condition': condition, variable_of_interest: var})
 
     # Create DataFrame
-    df_proactive_all = pd.DataFrame(data)
+    df_all = pd.DataFrame(data)
 
     # Calculate mean and standard deviation for each condition
-    group_stats = df_proactive_all.groupby('Condition')[variable_of_interest].agg(['mean', 'std'])
+    group_stats = df_all.groupby('Condition')[variable_of_interest].agg(['mean', 'std'])
 
     # Perform pairwise Mann-Whitney U tests to compare each condition
     conditions = ['control', 'DBS OFF', 'DBS ON']
@@ -539,15 +638,15 @@ def plot_variable_of_interest(
     plt.figure(figsize=(5, 6))
 
 
-    sns.pointplot(data=df_proactive_all, x='Condition', y=variable_of_interest,
+    sns.pointplot(data=df_all, x='Condition', y=variable_of_interest,
                 linestyle='none', errorbar='sd', marker='_', color='black', legend=False)
 
     # Overlay individual data points
     if colored_by == 'subject':
-        stripplot = sns.stripplot(data=df_proactive_all, x='Condition', y=variable_of_interest, jitter = 0.25,
+        stripplot = sns.stripplot(data=df_all, x='Condition', y=variable_of_interest, jitter = 0.25,
                                 size=7, palette=subject_colors, hue='Subject', legend=False)
     elif colored_by == 'condition':
-        stripplot = sns.stripplot(data=df_proactive_all, x='Condition', y=variable_of_interest, jitter = 0.25,
+        stripplot = sns.stripplot(data=df_all, x='Condition', y=variable_of_interest, jitter = 0.25,
                                 size=7, palette=color_dict, hue='Condition', legend=False)
 
     # Retrieve the x-coordinates for each condition label
@@ -564,12 +663,12 @@ def plot_variable_of_interest(
     #         plt.plot(x_coords, y_coords, marker='o', color='gray', alpha=0.5)
 
     # Calculate number of subjects in each group
-    subject_counts = df_proactive_all.groupby('Condition')['Subject'].nunique()
+    subject_counts = df_all.groupby('Condition')['Subject'].nunique()
 
     # Add "n=number of subjects" above each violin
     for condition, count in subject_counts.items():
         x_position = condition_x_positions[condition]  # Get the x-position for the condition
-        plt.text(x_position, df_proactive_all[variable_of_interest].max() + 100, f'n={count}', 
+        plt.text(x_position, df_all[variable_of_interest].max() + 100, f'n={count}', 
                 horizontalalignment='center', fontsize=12, color='black')
 
     # Add labels, title, and legend
