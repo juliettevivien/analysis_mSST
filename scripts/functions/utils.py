@@ -492,6 +492,8 @@ def extract_stats(data):
         else: early_press_go_rt = []
         early_presses_trials = df_maintask[df_maintask['early_press_resp.corr'] == 1].index
         sub_dict['early presses'] = early_presses
+        anticipatory_presses = len(df_maintask[df_maintask['key_resp_experiment.rt'] < 0.2])
+        sub_dict['early and anticipatory presses'] = early_presses + anticipatory_presses
  
         # remove trials with early presses from the dataframe:
         df_maintask_copy = df_maintask.drop(early_presses_trials)
@@ -577,6 +579,12 @@ def extract_stats(data):
         continue_signal_started = (df_maintask_gc_successful['stop_signal_triangle.started']* 1000).tolist()
         gc_RTs_from_continue = [(go_rectangle_started[i] + gc_RTs[i]) - continue_signal_started[i] for i in range(len(gc_RTs))]
         sub_dict['GC RTs from continue cue (ms)'] = gc_RTs_from_continue
+        sub_dict['GC RTs from continue cue normalized with mean GF (ms)'] = [rt / np.nanmean(sub_dict['go_fast_trial mean RT (ms)']) for rt in gc_RTs_from_continue]
+
+        csd_gc_trials = (df_maintask_gc_successful['continue_signal_time']*1000).tolist()
+        sub_dict['CSD (ms)'] = csd_gc_trials
+
+        print(subject + ' # GC RTs:' + str(len(gc_RTs_from_continue)) + ' # Continue signal delay ' + str(len(csd_gc_trials)) )
 
         # calculate GS RT from stop cue:
         df_maintask_gs_unsuccessful = df_maintask_copy[
@@ -588,6 +596,7 @@ def extract_stats(data):
         stop_signal_started = (df_maintask_gs_unsuccessful['stop_signal_triangle.started'] * 1000).tolist()
         gs_RTs_from_stop = [(go_rectangle_started[i] + gs_RTs[i]) - stop_signal_started[i] for i in range(len(gs_RTs))]
         sub_dict['GS RTs from stop cue (ms)'] = gs_RTs_from_stop
+        sub_dict['GS RTs from stop cue normalized with mean GF (ms)'] = [rt / np.nanmean(sub_dict['go_fast_trial mean RT (ms)']) for rt in gs_RTs_from_stop]        
 
         sub_dict['Preparation cost (ms)'] = sub_dict['go_trial mean RT (ms)'] - sub_dict['go_fast_trial mean RT (ms)']
 
