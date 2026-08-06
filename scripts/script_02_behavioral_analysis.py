@@ -19,6 +19,7 @@ color_dict = {
     'Session 1': "#206ea1", 
     'Session 2': "#5FA363", 
     }
+visualize_by = 'subject' # pick whether to visualize by condition (DBS ON, DBS OFF, control) or by subject id
 
 # pick tests to run:
 RUN_ALL = True
@@ -35,6 +36,7 @@ plot_ssrt = False
 plot_rt = False
 plot_perf = False
 plot_early_press = True
+plot_early_and_anticipatory_press = True
 
 if RUN_ALL:
     scales_visualization = True
@@ -50,6 +52,7 @@ if RUN_ALL:
     plot_rt = True
     plot_perf = True
     plot_early_press = True
+    plot_early_and_anticipatory_press = True
 
 # set paths
 onedrive_path = utils._get_onedrive_path()
@@ -132,7 +135,7 @@ if scales_visualization:
         subs = subs,
         subject_colors = subject_colors,
         color_dict = color_dict,
-        visualize_by = 'subject',
+        visualize_by = visualize_by,
         saving_path = temp_save,
         save_as = save_as
     )
@@ -167,7 +170,7 @@ if visualize_updrs:
     sub_scale_dict = sub_scale_dict, 
     subject_colors = subject_colors,
     color_dict = color_dict, 
-    colored_by = 'condition',
+    colored_by = visualize_by,
     saving_path = temp_save, 
     save_as = save_as
     )
@@ -307,7 +310,7 @@ if plot_prep_cost:
         color_dict = color_dict,
         subject_colors = subject_colors,
         variable_of_interest = variable_of_interest,
-        colored_by = 'subject',
+        colored_by = visualize_by,
         saving_path = temp_save,
         save_as = save_as
     )
@@ -322,7 +325,7 @@ if plot_ssrt:
         color_dict = color_dict,
         subject_colors = subject_colors,
         variable_of_interest = variable_of_interest,
-        colored_by = 'subject',
+        colored_by = visualize_by,
         saving_path = temp_save,
         save_as = save_as
     )    
@@ -360,6 +363,23 @@ if plot_early_press:
     if not os.path.isdir(temp_save):
         os.makedirs(temp_save)  
     variable_of_interest = 'early presses'        
+    for color in ['condition', 'subject']:
+        behav_analysis.plot_variable_of_interest(
+            stats = stats,
+            color_dict = color_dict,
+            subject_colors = subject_colors,
+            variable_of_interest = variable_of_interest,
+            colored_by = color,
+            saving_path = temp_save,
+            save_as = save_as
+        )   
+
+
+if plot_early_and_anticipatory_press:
+    temp_save = join(behav_results_saving_path, "Performance")
+    if not os.path.isdir(temp_save):
+        os.makedirs(temp_save)  
+    variable_of_interest = 'early and anticipatory presses'        
     for color in ['condition', 'subject']:
         behav_analysis.plot_variable_of_interest(
             stats = stats,
