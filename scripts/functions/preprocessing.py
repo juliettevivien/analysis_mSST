@@ -34,7 +34,7 @@ def create_epochs(
     # Filter the events array where the event code is in the valid_event_codes list
     filtered_events = np.array([event for event in events if event[2] in valid_event_codes])
 
-    epochs = mne.Epochs(file_to_epoch, filtered_events, event_id=filtered_event_dict, tmin=tmin, tmax=tmax, baseline=baseline, preload=True)
+    epochs = mne.Epochs(file_to_epoch, filtered_events, event_id=filtered_event_dict, tmin=tmin, tmax=tmax, baseline=baseline, preload=True, reject_by_annotation=False)
     # metadata = pd.DataFrame({'subject':[session_ID] * len(epochs)})
     # epochs.metadata = metadata
 
