@@ -6,8 +6,8 @@ from functions import io
 
 
 def main_convert_xdf_to_set(
-    session_ID="C013",
-    fname_external="sub-C013_ses-mSST_task-Default_run-001_eeg.xdf",
+    session_ID="C016",
+    fname_external="sub-C016_ses-mSST_task-Default_run-001_eeg.xdf",
 ):
 
     """
