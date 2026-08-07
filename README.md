@@ -27,7 +27,7 @@ BEHAV_2_rt.ipynb
 BEHAV_3_performance.ipynb
 BEHAV_4_proactive_inhibition.ipynb
 BEHAV_5_reactive_inhibition.ipynb
-BEHAV_6_KDE_ipynb
+BEHAV_6_correlation_task_scales.ipynb
 
 
 LFP:

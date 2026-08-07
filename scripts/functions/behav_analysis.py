@@ -328,7 +328,8 @@ def visualize_rt_distribution(
     stats, 
     color_dict, 
     saving_path,
-    save_as    
+    save_as,
+    show_plot = False    
 ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -350,7 +351,7 @@ def visualize_rt_distribution(
     conditions = ['control', 'DBS ON', 'DBS OFF']
     stats_list = [stats_CONTROL, stats_ON, stats_OFF]
 
-    trial_types = ['GO', 'GC', 'GS', 'GF']
+    trial_types = ['GO', 'GF', 'GC', 'GS']
     ylims = {'GC': 0.003, 'GS': 0.005, 'GO': 0.003, 'GF': 0.005}
 
     fig, axes = plt.subplots(
@@ -420,13 +421,17 @@ def visualize_rt_distribution(
     plt.savefig(join(saving_path, f"RT_distributions.{save_as}"),
         dpi=300
     )
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:    
+        plt.close()
 
 def visualize_rt_distribution_overlapped(
     stats, 
     color_dict, 
     saving_path,
-    save_as    
+    save_as,
+    show_plot = False    
 ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -447,14 +452,16 @@ def visualize_rt_distribution_overlapped(
 
     fig, axes = plt.subplots(1, 4, figsize=(12, 4), sharey=True)
 
-    for col, trial in enumerate(['GO', 'GC', 'GS', 'GF']):
+    for col, trial in enumerate(['GO', 'GF', 'GC', 'GS']):
         ax = axes[col]
+        n_per_cond = {}
 
         for condition, stats_cond in zip(
             ['control', 'DBS ON', 'DBS OFF'],
             [stats_CONTROL, stats_ON, stats_OFF]
         ):
             data = []
+            n_per_cond[condition] = len(stats_cond)
 
             for subject in stats_cond.keys():
                 key_map = {
@@ -475,13 +482,20 @@ def visualize_rt_distribution_overlapped(
             )
 
         ax.set_title(trial)
-        ax.set_xlabel('Reaction Time (ms)')
+        if trial in ['GC', 'GS']:
+            ax.set_xlabel('RT from Continue/Stop cue(ms)')
+        else:
+            ax.set_xlabel('RT from GO/GF cue(ms)')    
 
     axes[0].set_ylabel('Density')
     axes[0].legend()
+    fig.suptitle(f'Reaction Time Distributions by Condition \n HC = {n_per_cond["control"]} \n PD = {n_per_cond["DBS ON"]}')
     plt.tight_layout()
     plt.savefig(join(saving_path, f"RTs_kde_overlay.{save_as}"), dpi = 300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
     
 
 def correlate_ssrt_prep_cost(
@@ -489,7 +503,8 @@ def correlate_ssrt_prep_cost(
     subject_colors,
     color_dict,
     saving_path,
-    save_as
+    save_as,
+    show_plot = False
 ):    
     ssrt_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
     prep_cost_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
@@ -527,7 +542,10 @@ def correlate_ssrt_prep_cost(
 
     plt.tight_layout()
     plt.savefig(join(saving_path, f'ssrt_prep_cost_correlation.{save_as}'), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 def correlate_behav_measure_with_scale(
         stats,
@@ -537,7 +555,8 @@ def correlate_behav_measure_with_scale(
         subject_colors,
         color_dict,
         saving_path,
-        save_as
+        save_as,
+        show_plot = False
     ):
     behav_measure_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
     scale_dict = {'DBS ON': [], 'DBS OFF': [], 'control': []}
@@ -572,7 +591,10 @@ def correlate_behav_measure_with_scale(
     plt.legend(handles, labels, loc=3, framealpha=1)
     plt.tight_layout()
     plt.savefig(join(saving_path, f'{behav_measure_name}_{scale_name}_correlation.{save_as}'), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 def plot_variable_of_interest(
         stats,
@@ -581,7 +603,8 @@ def plot_variable_of_interest(
         variable_of_interest,
         colored_by,
         saving_path,
-        save_as
+        save_as,
+        show_plot = False
     ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -665,21 +688,24 @@ def plot_variable_of_interest(
     # Calculate number of subjects in each group
     subject_counts = df_all.groupby('Condition')['Subject'].nunique()
 
-    # Add "n=number of subjects" above each violin
-    for condition, count in subject_counts.items():
-        x_position = condition_x_positions[condition]  # Get the x-position for the condition
-        plt.text(x_position, df_all[variable_of_interest].max() + 100, f'n={count}', 
-                horizontalalignment='center', fontsize=12, color='black')
+    # # Add "n=number of subjects" above each violin
+    # for condition, count in subject_counts.items():
+    #     x_position = condition_x_positions[condition]  # Get the x-position for the condition
+    #     plt.text(x_position, df_all[variable_of_interest].max() + 100, f'n={count}', 
+    #             horizontalalignment='center', fontsize=12, color='black')
 
     # Add labels, title, and legend
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.xlabel('Condition', fontsize=14)
     plt.ylabel(f'Mean {variable_of_interest}', fontsize=14)
-    plt.title(f'Mean {variable_of_interest} Across Conditions', fontsize=10)
+    plt.title(f'Mean {variable_of_interest} Across Conditions \n n HC = {subject_counts["control"]} \n n PD = {subject_counts["DBS OFF"]}', fontsize=10)
     plt.tight_layout()
     plt.savefig(join(saving_path, f"{variable_of_interest} - Colored by {colored_by}.{save_as}"), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 def plot_rt_all(
     stats,
@@ -687,7 +713,8 @@ def plot_rt_all(
     subject_colors,
     colored_by,
     saving_path,
-    save_as
+    save_as,
+    show_plot = False
 ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -733,7 +760,7 @@ def plot_rt_all(
             }
 
     plt.figure(figsize=(15, 5))
-    for i, trial_type in enumerate(['go_rt', 'gc_rt', 'gs_rt', 'gf_rt']):
+    for i, trial_type in enumerate(['go_rt', 'gf_rt', 'gc_rt', 'gs_rt']):
         plt.subplot(1, 4, i+1)
         for condition, subject_dict in results.items():
             for subject_id, metrics in subject_dict.items():
@@ -773,7 +800,10 @@ def plot_rt_all(
     plt.suptitle('Reaction Times for all trial types\n Mean ± std', fontsize=16)
     plt.tight_layout()
     plt.savefig(join(saving_path, f"RTs_all_trials_colored_by_{colored_by}.{save_as}"), dpi=300)
-    plt.close()
+    if show_plot:
+        plt.show()
+    else:    
+        plt.close()
 
 def plot_perf_all(
     stats,
@@ -781,7 +811,8 @@ def plot_perf_all(
     subject_colors,
     colored_by,
     saving_path,
-    save_as        
+    save_as,
+    show_plot = False        
 ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -821,13 +852,13 @@ def plot_perf_all(
             gf_correct = metrics[ 'percent correct go_fast_trial']
             results[condition][sub_id] = {
                 'go_correct': go_correct,
+                'gf_correct': gf_correct,
                 'gc_correct': gc_correct,
-                'gs_correct': gs_correct,
-                'gf_correct': gf_correct
+                'gs_correct': gs_correct        
             }
 
     plt.figure(figsize=(15, 5))
-    for i, trial_type in enumerate(['go_correct', 'gc_correct', 'gs_correct', 'gf_correct']):
+    for i, trial_type in enumerate(['go_correct', 'gf_correct', 'gc_correct', 'gs_correct']):
         plt.subplot(1, 4, i+1)
         if trial_type == 'go_correct':
             plt.axhline(y=70, color='lightgray', linestyle='--', linewidth=1, label ='70% threshold')
@@ -874,4 +905,7 @@ def plot_perf_all(
     plt.suptitle('Percentage Correct for all trial types\n Mean ± std', fontsize=16)
     plt.tight_layout()
     plt.savefig(join(saving_path, f"Performance_all_trials_colored_by_{colored_by}.{save_as}"), dpi=300)
-    plt.close()    
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()    
