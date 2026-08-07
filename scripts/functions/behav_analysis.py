@@ -6,6 +6,7 @@ import numpy as np
 import scipy
 import seaborn as sns
 
+
 def get_session_order(
     included_subjects,
     subject_info_df,
@@ -909,3 +910,238 @@ def plot_perf_all(
         plt.show()
     else:
         plt.close()    
+
+
+
+def plot_kde_on_off_per_trial_type(
+        stats, 
+        color_dict, 
+        save_path=None, 
+        save_as='png',
+        show_plot = False):
+    
+    # Initialize empty dictionaries
+    stats_OFF = {}
+    stats_ON = {}
+    stats_CONTROL = {}
+    stats_PREOP = {}
+
+    # Loop through the original dictionary and filter into sub-dictionaries
+    for key, value in stats.items():
+        if "OFF" in key:
+            stats_OFF[key] = value
+        elif "ON" in key:
+            stats_ON[key] = value
+        elif "C" in key:
+            stats_CONTROL[key] = value
+        elif "preop" in key:
+            stats_PREOP[key] = value
+
+    # x_kde = np.linspace(0, 1200, 1000)
+    x_kde = np.linspace(-1, 3, 1000)
+    all_subject_kdes = {}
+
+    for condition, stats_cond in zip(
+        ['DBS OFF', 'DBS ON', 'control'],
+        [stats_OFF, stats_ON, stats_CONTROL]
+    ):
+        all_subject_kdes[condition] = {}
+
+        for subject in stats_cond.keys():
+
+            subject_data = stats_cond[subject]
+
+            # initialize subject container
+            all_subject_kdes[condition][subject] = {
+                'CSD': None
+            }
+            # all_subject_kdes[condition][subject] = {}
+
+            # store CSD directly
+            CSD = subject_data.get('CSD (ms)', None)
+            if CSD is not None:
+                CSD = np.asarray(CSD, dtype=float)
+                CSD = CSD[np.isfinite(CSD)]
+                all_subject_kdes[condition][subject]['CSD'] = CSD
+
+            trial_dict = {
+                'GC': subject_data.get('GC RTs from continue cue (ms)', []), 
+                'GS': subject_data.get('GS RTs from stop cue (ms)', []), 
+                'GO': subject_data.get('go_trial RTs (ms)', []),
+                'GF': subject_data.get('go_fast_trial RTs (ms)', [])
+            }
+
+            # CSD = subject_data.get('CSD (ms)', None)
+            # if CSD is not None:
+            #     trial_dict['CSD'] = [CSD]
+
+            for trial_type, rts in trial_dict.items():
+
+                # convert to numpy array and remove NaN/inf
+                rts = np.asarray(rts, dtype=float)
+                rts = rts[np.isfinite(rts)]
+
+                # convert to seconds
+                rts = rts / 1000.0
+
+                # optional: remove impossible RTs
+                # rts = rts[(rts > 0) & (rts < 2000)]
+
+                # need enough unique values for KDE
+                if len(rts) > 1 and len(np.unique(rts)) > 1:
+                    try:
+                        kde = scipy.stats.gaussian_kde(rts) #, bw_method=0.2
+                        y_kde = kde(x_kde)
+
+                        all_subject_kdes[condition][subject][trial_type] = {
+                            'x': x_kde.copy(),
+                            'y': y_kde,
+                            'raw_rts': rts
+                        }
+
+                    except Exception as e:
+                        print(f'KDE failed: {condition} | {subject} | {trial_type}: {e}')
+                        all_subject_kdes[condition][subject][trial_type] = None
+                else:
+                    all_subject_kdes[condition][subject][trial_type] = None
+
+    # Plot for each subject the kde in DBS OFF and DBS on for each trial type (GC, GS, GO, GO_FAST):
+    for trial_type in ['GC', 'GS', 'GO', 'GF']:
+        for subject in all_subject_kdes['DBS OFF'].keys():
+            plt.figure(figsize=(10, 6)) # one new figure per subject
+            for condition in ['DBS OFF', 'DBS ON']:
+                sub = subject if condition == 'DBS OFF' else subject.replace('OFF', 'ON')
+                plt.plot(all_subject_kdes[condition][sub][trial_type]['x'], all_subject_kdes[condition][sub][trial_type]['y'], color=color_dict[condition], label=condition)
+
+            if trial_type in ['GC', 'GS']:
+                plt.xlabel('Reaction Time from triangle (s)')
+            else:
+                plt.xlabel('Reaction Time from square cue (s)')
+            # plt.xlim(0, 1200)
+            plt.xlim(0,1)
+            # plt.ylim(0, 0.004)
+            plt.title(f'{trial_type} Reaction Time KDEs ({sub.split(" ")[0]})')
+            plt.legend()
+            plt.tight_layout()
+            if save_path is not None:
+                plt.savefig(join(save_path, f'{sub.split(" ")[0]}_{trial_type}_kde.{save_as}'), dpi=300, bbox_inches='tight')
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
+
+
+
+def plot_kde_compare_trial_type_per_sub(
+        stats, 
+        color_dict, 
+        save_path=None, 
+        save_as='png',
+        show_plot = False):
+    
+
+    # Initialize empty dictionaries
+    stats_OFF = {}
+    stats_ON = {}
+    stats_CONTROL = {}
+    stats_PREOP = {}
+
+    # Loop through the original dictionary and filter into sub-dictionaries
+    for key, value in stats.items():
+        if "OFF" in key:
+            stats_OFF[key] = value
+        elif "ON" in key:
+            stats_ON[key] = value
+        elif "C" in key:
+            stats_CONTROL[key] = value
+        elif "preop" in key:
+            stats_PREOP[key] = value
+
+
+    # x_kde = np.linspace(0, 1200, 1000)
+    x_kde = np.linspace(-1, 3, 1000)
+    all_subject_kdes = {}
+
+    for condition, stats_cond in zip(
+        ['DBS OFF', 'DBS ON', 'control'],
+        [stats_OFF, stats_ON, stats_CONTROL]
+    ):
+        all_subject_kdes[condition] = {}
+
+        for subject in stats_cond.keys():
+
+            subject_data = stats_cond[subject]
+
+            # initialize subject container
+            all_subject_kdes[condition][subject] = {
+                'CSD': None
+            }
+            # all_subject_kdes[condition][subject] = {}
+
+            # store CSD directly
+            CSD = subject_data.get('CSD (ms)', None)
+            if CSD is not None:
+                CSD = np.asarray(CSD, dtype=float)
+                CSD = CSD[np.isfinite(CSD)]
+                all_subject_kdes[condition][subject]['CSD'] = CSD
+
+            trial_dict = {
+                'GC': subject_data.get('go_continue_trial RTs (ms)', []), 
+                'GS': subject_data.get('stop_trial RTs (ms)', []), 
+                'GO': subject_data.get('go_trial RTs (ms)', []),
+                'GF': subject_data.get('go_fast_trial RTs (ms)', [])
+            }
+
+            # CSD = subject_data.get('CSD (ms)', None)
+            # if CSD is not None:
+            #     trial_dict['CSD'] = [CSD]
+
+            for trial_type, rts in trial_dict.items():
+
+                # convert to numpy array and remove NaN/inf
+                rts = np.asarray(rts, dtype=float)
+                rts = rts[np.isfinite(rts)]
+
+                # convert to seconds
+                rts = rts / 1000.0
+
+                # optional: remove impossible RTs
+                # rts = rts[(rts > 0) & (rts < 2000)]
+
+                # need enough unique values for KDE
+                if len(rts) > 1 and len(np.unique(rts)) > 1:
+                    try:
+                        kde = scipy.stats.gaussian_kde(rts) #, bw_method=0.2
+                        y_kde = kde(x_kde)
+
+                        all_subject_kdes[condition][subject][trial_type] = {
+                            'x': x_kde.copy(),
+                            'y': y_kde,
+                            'raw_rts': rts
+                        }
+
+                    except Exception as e:
+                        print(f'KDE failed: {condition} | {subject} | {trial_type}: {e}')
+                        all_subject_kdes[condition][subject][trial_type] = None
+                else:
+                    all_subject_kdes[condition][subject][trial_type] = None
+
+    for condition in ['DBS OFF', 'DBS ON', 'control']:
+        for subject in all_subject_kdes[condition].keys():
+            plt.figure(figsize=(10, 6))
+            for trial_type in ['GC', 'GS', 'GO', 'GF']:
+                kde_data = all_subject_kdes[condition][subject][trial_type]
+                if kde_data is not None:
+                    plt.plot(kde_data['x'], kde_data['y'])
+            plt.title(f'Reaction Time KDE ({condition} - {subject})')
+            plt.xlabel('Reaction Time from GO (s)')
+            plt.ylabel('Density')
+            plt.xlim(0, 2)
+            plt.legend(['GC', 'GS', 'GO', 'GF'])
+            plt.tight_layout()
+            if save_path is not None:
+                plt.savefig(join(save_path, f'{subject}_kde.{save_as}'), dpi=300, bbox_inches='tight')
+            if show_plot:
+                plt.show()
+            else:
+                plt.close()
