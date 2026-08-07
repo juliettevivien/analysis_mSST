@@ -170,34 +170,123 @@ def dotplot_group_comparison(
     else:
         plt.close()
 
+
 def correlate_two_scales(
     scale_1,
     scale_2,
     sub_scale_dict,
     subject_colors,
+    color_dict,
     saving_path,
     save_as,
-    show_plot = False    
-    ):
-        # correlation between SAS and BDI scores across all subjects, with a linear regression line:
-        plt.figure(figsize=(10, 6))
-        for sub in sub_scale_dict:
-            plt.scatter(sub_scale_dict[sub][scale_1], sub_scale_dict[sub][scale_2], color = subject_colors[sub], label=sub)
-        plt.xlabel(f'{scale_1} Score')
-        plt.ylabel(f'{scale_2} Score')
-        plt.title(f'{scale_1} vs {scale_2} scores')
-        # add linear regression line
-        x = [sub_scale_dict[sub][scale_1] for sub in sub_scale_dict]
-        y = [sub_scale_dict[sub][scale_2] for sub in sub_scale_dict]
-        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
-        plt.plot(x, intercept + slope * np.array(x), 'r', label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}')
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout()
-        plt.savefig(join(saving_path, f'{scale_1}_{scale_2}_correlation.{save_as}'), dpi=300)
-        if show_plot:
-            plt.show()
-        else:
-            plt.close()
+    show_plot=False
+):
+
+    plt.figure(figsize=(10, 6))
+
+    # Store values for each subgroup
+    x_control, y_control = [], []
+    x_pd, y_pd = [], []
+
+    # Plot individual subjects
+    for sub in sub_scale_dict:
+
+        x = sub_scale_dict[sub][scale_1]
+        y = sub_scale_dict[sub][scale_2]
+
+        plt.scatter(
+            x, y,
+            color=subject_colors[sub],
+            label=sub
+        )
+
+        if sub.startswith("C"):
+            x_control.append(x)
+            y_control.append(y)
+        elif sub.startswith("sub"):
+            x_pd.append(x)
+            y_pd.append(y)
+
+    # -------- Control regression --------
+    if len(x_control) > 1:
+        slope, intercept, r, p, _ = scipy.stats.linregress(
+            x_control, y_control
+        )
+
+        x_fit = np.sort(np.array(x_control))
+        y_fit = intercept + slope * x_fit
+
+        plt.plot(
+            x_fit,
+            y_fit,
+            color=color_dict["control"],
+            linewidth=2.5,
+            label=f"Controls: r={r:.2f}, p={p:.3f}"
+        )
+
+    # -------- PD regression --------
+    if len(x_pd) > 1:
+        slope, intercept, r, p, _ = scipy.stats.linregress(
+            x_pd, y_pd
+        )
+
+        x_fit = np.sort(np.array(x_pd))
+        y_fit = intercept + slope * x_fit
+
+        plt.plot(
+            x_fit,
+            y_fit,
+            color=color_dict["DBS ON"],   # choose another color if desired
+            linewidth=2.5,
+            label=f"PD: r={r:.2f}, p={p:.3f}"
+        )
+
+    plt.xlabel(f"{scale_1} Score")
+    plt.ylabel(f"{scale_2} Score")
+    plt.title(f"Correlation between {scale_1} and {scale_2} scores")
+
+    plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.tight_layout()
+
+    plt.savefig(
+        join(saving_path, f"{scale_1}_{scale_2}_correlation.{save_as}"),
+        dpi=300
+    )
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+
+# def correlate_two_scales(
+#     scale_1,
+#     scale_2,
+#     sub_scale_dict,
+#     subject_colors,
+#     saving_path,
+#     save_as,
+#     show_plot = False    
+#     ):
+#         # correlation between SAS and BDI scores across all subjects, with a linear regression line:
+#         plt.figure(figsize=(10, 6))
+#         for sub in sub_scale_dict:
+#             plt.scatter(sub_scale_dict[sub][scale_1], sub_scale_dict[sub][scale_2], color = subject_colors[sub], label=sub)
+#         # add linear regression line
+#         x = [sub_scale_dict[sub][scale_1] for sub in sub_scale_dict]
+#         y = [sub_scale_dict[sub][scale_2] for sub in sub_scale_dict]
+#         slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
+#         plt.plot(x, intercept + slope * np.array(x), 'black', label='')
+#         plt.xlabel(f'{scale_1} Score')
+#         plt.ylabel(f'{scale_2} Score')
+#         plt.title(f'Correlation between {scale_1} and {scale_2} scores \n Linear fit: r={r_value:.2f}, p={p_value:.3f}')
+#         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+#         plt.tight_layout()
+#         plt.savefig(join(saving_path, f'{scale_1}_{scale_2}_correlation.{save_as}'), dpi=300)
+#         if show_plot:
+#             plt.show()
+#         else:
+#             plt.close()
 
 # def scale_comparison_pd_hc(
 #         df, 
