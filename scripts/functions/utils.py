@@ -584,7 +584,7 @@ def extract_stats(data):
         csd_gc_trials = (df_maintask_gc_successful['continue_signal_time']*1000).tolist()
         sub_dict['CSD (ms)'] = csd_gc_trials
 
-        print(subject + ' # GC RTs:' + str(len(gc_RTs_from_continue)) + ' # Continue signal delay ' + str(len(csd_gc_trials)) )
+        # print(subject + ' # GC RTs:' + str(len(gc_RTs_from_continue)) + ' # Continue signal delay ' + str(len(csd_gc_trials)) )
 
         # calculate GS RT from stop cue:
         df_maintask_gs_unsuccessful = df_maintask_copy[
