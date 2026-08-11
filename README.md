@@ -10,6 +10,7 @@ In each category, numerical labelling is used:
 0 is usually associated with pre-processing steps (e.g., cleaning the data by filtering or removing artifacts, or checking inclusion/exclusion criteria)
 1, 2, 3, ... are usually associated with different analysis (e.g. TFR analysis, ERP analysis, RT analysis...)
 
+
 **Available notebooks per section:**
 
 EEG:
@@ -32,3 +33,12 @@ BEHAV_6_correlation_task_scales.ipynb
 
 LFP:
 LFP_0_epoch_preproc.ipynb
+
+OTHER:
+OTHER_reconstruct_behav_from_xdf.ipynb
+
+
+**Scripts:**
+
+SCRIPT_convert_xdf_to_set.py  # Simple conversion script for healthy controls: we don't use DBSsync so we only have the LSL output file (.xdf), but our analysis scripts use .set. 
+
