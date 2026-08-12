@@ -686,6 +686,22 @@ def correlate_behav_measure_with_scale(
     else:
         plt.close()
 
+
+def add_stat_annotation(ax, x1, x2, y, h, p_val, fontsize=11):
+    """Draw a significance bracket between x1 and x2 at height y, with bar height h."""
+    ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], lw=1.3, color='black')
+    if p_val < 0.001:
+        stars = '***'
+    elif p_val < 0.01:
+        stars = '**'
+    elif p_val < 0.05:
+        stars = '*'
+    else:
+        stars = 'ns'
+    ax.text((x1 + x2) / 2, y + h, f"{stars} (p={p_val:.3f})",
+             ha='center', va='bottom', fontsize=fontsize)
+
+
 def plot_variable_of_interest(
         stats,
         color_dict,
@@ -694,7 +710,9 @@ def plot_variable_of_interest(
         colored_by,
         saving_path,
         save_as,
-        show_plot = False
+        show_plot = False,
+        run_stats = True,          # NEW: toggle statistical testing
+        correct_multiple_comparisons = False  # NEW: optional Bonferroni correction
     ):
     # Initialize empty dictionaries
     stats_OFF = {}
@@ -784,6 +802,65 @@ def plot_variable_of_interest(
     #     plt.text(x_position, df_all[variable_of_interest].max() + 100, f'n={count}', 
     #             horizontalalignment='center', fontsize=12, color='black')
 
+    # ------------------------------------------------------------------
+    # NEW: Statistical testing
+    # ------------------------------------------------------------------
+    if run_stats:
+        ax = plt.gca()
+
+        # --- Control vs. DBS OFF: independent samples -> Mann-Whitney U ---
+        control_vals = df_all.loc[df_all['Condition'] == 'control', variable_of_interest].values
+        off_vals = df_all.loc[df_all['Condition'] == 'DBS OFF', variable_of_interest].values
+        on_vals = df_all.loc[df_all['Condition'] == 'DBS ON', variable_of_interest].values
+
+        p_control_off = np.nan
+        if len(control_vals) > 0 and len(off_vals) > 0:
+            _, p_control_off = scipy.stats.mannwhitneyu(control_vals, off_vals, alternative='two-sided')
+
+        # --- Control vs. DBS ON: independent samples -> Mann-Whitney U ---
+        p_control_on = np.nan
+        if len(control_vals) > 0 and len(on_vals) > 0:
+            _, p_control_on = scipy.stats.mannwhitneyu(control_vals, on_vals, alternative='two-sided')
+
+        # --- DBS OFF vs. DBS ON: paired samples -> Wilcoxon signed-rank ---
+        # Match subjects present in BOTH conditions (order-safe)
+        off_series = df_all[df_all['Condition'] == 'DBS OFF'].set_index('Subject')[variable_of_interest]
+        on_series = df_all[df_all['Condition'] == 'DBS ON'].set_index('Subject')[variable_of_interest]
+        common_subjects = off_series.index.intersection(on_series.index)
+
+        p_off_on = np.nan
+        if len(common_subjects) > 0:
+            off_paired = off_series.loc[common_subjects].values
+            on_paired = on_series.loc[common_subjects].values
+            _, p_off_on = scipy.stats.wilcoxon(off_paired, on_paired)
+
+        # --- Optional: correct for multiple comparisons (Bonferroni) ---
+        p_values = {'control_off': p_control_off, 'control_on': p_control_on, 'off_on': p_off_on}
+        if correct_multiple_comparisons:
+            n_tests = sum(~np.isnan(list(p_values.values())))
+            p_values = {k: (v * n_tests if not np.isnan(v) else v) for k, v in p_values.items()}
+            p_values = {k: min(v, 1.0) if not np.isnan(v) else v for k, v in p_values.items()}
+
+        # --- Annotate brackets on the plot ---
+        y_max = df_all[variable_of_interest].max()
+        y_range = df_all[variable_of_interest].max() - df_all[variable_of_interest].min()
+        h = y_range * 0.04
+        gap = y_range * 0.12
+
+        if not np.isnan(p_values['control_off']):
+            add_stat_annotation(ax, condition_x_positions['control'], condition_x_positions['DBS OFF'],
+                                 y_max + gap, h, p_values['control_off'])
+        if not np.isnan(p_values['off_on']):
+            add_stat_annotation(ax, condition_x_positions['DBS OFF'], condition_x_positions['DBS ON'],
+                                 y_max + gap * 2.2, h, p_values['off_on'])
+        if not np.isnan(p_values['control_on']):
+            add_stat_annotation(ax, condition_x_positions['control'], condition_x_positions['DBS ON'],
+                                 y_max + gap * 3.4, h, p_values['control_on'])
+
+        # Give the annotations room by extending the y-axis
+        ax.set_ylim(top=y_max + gap * 4.2)
+    # ------------------------------------------------------------------
+
     # Add labels, title, and legend
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
@@ -796,6 +873,117 @@ def plot_variable_of_interest(
         plt.show()
     else:
         plt.close()
+
+# def plot_variable_of_interest(
+#         stats,
+#         color_dict,
+#         subject_colors,
+#         variable_of_interest,
+#         colored_by,
+#         saving_path,
+#         save_as,
+#         show_plot = False
+#     ):
+#     # Initialize empty dictionaries
+#     stats_OFF = {}
+#     stats_ON = {}
+#     stats_CONTROL = {}
+#     stats_PREOP = {}
+
+#     # Loop through the original dictionary and filter into sub-dictionaries
+#     for key, value in stats.items():
+#         if "OFF" in key:
+#             stats_OFF[key] = value
+#         elif "ON" in key:
+#             stats_ON[key] = value
+#         elif "C" in key:
+#             stats_CONTROL[key] = value
+#         elif "preop" in key:
+#             stats_PREOP[key] = value
+
+#     # Define conditions and corresponding dictionaries
+#     conditions = {
+#         'control': stats_CONTROL,
+#         'DBS OFF': stats_OFF,
+#         'DBS ON': stats_ON,
+#     }
+
+#     # Initialize dictionaries to hold results for each condition
+#     results = {condition: {} for condition in conditions.keys()}
+
+#     # Loop through each condition and subject
+#     for condition, data_dict in conditions.items():
+#         for subject_id, metrics in data_dict.items():
+#             # Extract the subject ID (first part of subject_id before the first space)
+#             sub_id = subject_id.split()[0]
+#             # Retrieve the required metrics and store them in the result dictionary
+#             var = (metrics[variable_of_interest])
+#             results[condition][sub_id] = var
+
+#     # Prepare data for DataFrame
+#     data = []
+#     for condition, subject_dict in results.items():
+#         for subject_id, var in subject_dict.items():
+#             data.append({'Subject': subject_id, 'Condition': condition, variable_of_interest: var})
+
+#     # Create DataFrame
+#     df_all = pd.DataFrame(data)
+
+#     # Calculate mean and standard deviation for each condition
+#     group_stats = df_all.groupby('Condition')[variable_of_interest].agg(['mean', 'std'])
+
+#     # Perform pairwise Mann-Whitney U tests to compare each condition
+#     conditions = ['control', 'DBS OFF', 'DBS ON']
+
+#     # Initialize the plot
+#     plt.figure(figsize=(5, 6))
+
+
+#     sns.pointplot(data=df_all, x='Condition', y=variable_of_interest,
+#                 linestyle='none', errorbar='sd', marker='_', color='black', legend=False)
+
+#     # Overlay individual data points
+#     if colored_by == 'subject':
+#         stripplot = sns.stripplot(data=df_all, x='Condition', y=variable_of_interest, jitter = 0.25,
+#                                 size=7, palette=subject_colors, hue='Subject', legend=False)
+#     elif colored_by == 'condition':
+#         stripplot = sns.stripplot(data=df_all, x='Condition', y=variable_of_interest, jitter = 0.25,
+#                                 size=7, palette=color_dict, hue='Condition', legend=False)
+
+#     # Retrieve the x-coordinates for each condition label
+#     condition_x_positions = {label.get_text(): pos for label, pos in zip(stripplot.get_xticklabels(), stripplot.get_xticks())}
+
+#     # Draw lines between corresponding subject points in 'DBS OFF' and 'DBS ON'
+#     # for subject_id in df_proactive_all['Subject'].unique():
+#     #     # Get data for this subject in 'DBS OFF' and 'DBS ON' conditions
+#     #     subject_data = df_proactive_all[(df_proactive_all['Subject'] == subject_id) & (df_proactive_all['Condition'].isin(['DBS OFF', 'DBS ON']))]
+#     #     if len(subject_data) == 2:
+#     #         # Use x-coordinates based on the dictionary created above
+#     #         x_coords = [condition_x_positions[subject_data.iloc[i]['Condition']] for i in range(2)]
+#     #         y_coords = subject_data[variable_of_interest].values
+#     #         plt.plot(x_coords, y_coords, marker='o', color='gray', alpha=0.5)
+
+#     # Calculate number of subjects in each group
+#     subject_counts = df_all.groupby('Condition')['Subject'].nunique()
+
+#     # # Add "n=number of subjects" above each violin
+#     # for condition, count in subject_counts.items():
+#     #     x_position = condition_x_positions[condition]  # Get the x-position for the condition
+#     #     plt.text(x_position, df_all[variable_of_interest].max() + 100, f'n={count}', 
+#     #             horizontalalignment='center', fontsize=12, color='black')
+
+#     # Add labels, title, and legend
+#     plt.xticks(fontsize=14)
+#     plt.yticks(fontsize=14)
+#     plt.xlabel('Condition', fontsize=14)
+#     plt.ylabel(f'Mean {variable_of_interest}', fontsize=14)
+#     plt.title(f'Mean {variable_of_interest} Across Conditions \n n HC = {subject_counts["control"]} \n n PD = {subject_counts["DBS OFF"]}', fontsize=10)
+#     plt.tight_layout()
+#     plt.savefig(join(saving_path, f"{variable_of_interest} - Colored by {colored_by}.{save_as}"), dpi=300)
+#     if show_plot:
+#         plt.show()
+#     else:
+#         plt.close()
 
 def plot_rt_all(
     stats,
