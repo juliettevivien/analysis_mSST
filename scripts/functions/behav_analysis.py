@@ -611,9 +611,11 @@ def correlate_ssrt_prep_cost(
         prep_cost_dict[cond].append(prep_cost)
 
     # fit linear regression line for each condition:
+    p_vals = {}
     for cond in ['control', 'DBS ON', 'DBS OFF']:
         slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(prep_cost_dict[cond], ssrt_dict[cond])
         plt.plot(prep_cost_dict[cond], intercept + slope * np.array(prep_cost_dict[cond]), color = color_dict[cond])    
+        p_vals[cond] = p_value
 
     # fit linear regression line across all conditions:
     slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(prep_cost_dict['control'] + prep_cost_dict['DBS ON'] + prep_cost_dict['DBS OFF'], ssrt_dict['control'] + ssrt_dict['DBS ON'] + ssrt_dict['DBS OFF'])
@@ -626,10 +628,18 @@ def correlate_ssrt_prep_cost(
 
     markers=["s","o","^"]
     f = lambda m,c: plt.plot([],[],marker=m, color=c, ls="none")[0]
-    handles = [f(markers[i], "k") for i in range(3)]
-    labels = ["control", "dbs on", "dbs off"]
-    plt.legend(handles, labels, loc=3, framealpha=1)
-
+    # handles = [f(markers[i], "k") for i in range(3)]
+    # labels = ["control", "dbs on", "dbs off"]
+    # plt.legend(handles, labels, loc=3, framealpha=1)
+    markers = ["s", "o", "^"]
+    conds_ordered = ['control', 'DBS ON', 'DBS OFF']
+    f = lambda m, c: plt.plot([], [], marker=m, color=c, ls="none")[0]
+    handles = [f(markers[i], color_dict[conds_ordered[i]]) for i in range(3)]
+    labels = [f"control (p={p_vals['control']:.3f})", f"DBS ON (p={p_vals['DBS ON']:.3f})", f"DBS OFF (p={p_vals['DBS OFF']:.3f})"]
+    legend = plt.legend(handles, labels, loc=3, framealpha=1)
+    # Optional: also color the legend text to match
+    for text, cond in zip(legend.get_texts(), conds_ordered):
+        text.set_color(color_dict[cond])
     plt.tight_layout()
     plt.savefig(join(saving_path, f'ssrt_prep_cost_correlation.{save_as}'), dpi=300)
     if show_plot:
@@ -662,23 +672,94 @@ def correlate_behav_measure_with_scale(
         behav_measure_dict[cond].append(behav_measure)
         scale_dict[cond].append(scale_measure)
 
-    # fit linear regression line for each condition:
-    for cond in ['control', 'DBS ON', 'DBS OFF']:
-        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict[cond], scale_dict[cond])
-        plt.plot(behav_measure_dict[cond], intercept + slope * np.array(behav_measure_dict[cond]), color = color_dict[cond])
+    # # fit linear regression line for each condition:
+    # p_vals = {}
+    # for cond in ['control', 'DBS ON', 'DBS OFF']:
+    #     slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict[cond], scale_dict[cond])
+    #     plt.plot(behav_measure_dict[cond], intercept + slope * np.array(behav_measure_dict[cond]), color = color_dict[cond])
+    #     p_vals[cond] = p_value
 
-    # fit linear regression line across all conditions:        
-    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], scale_dict['control'] + scale_dict['DBS ON'] + scale_dict['DBS OFF'])
-    plt.plot(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], intercept + slope * np.array(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF']), 'black', label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}')
+    # # fit linear regression line across all conditions:        
+    # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], scale_dict['control'] + scale_dict['DBS ON'] + scale_dict['DBS OFF'])
+    # plt.plot(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF'], intercept + slope * np.array(behav_measure_dict['control'] + behav_measure_dict['DBS ON'] + behav_measure_dict['DBS OFF']), 'black', label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}')
+
+    # Fit linear regression line for each condition
+
+    p_vals = {}
+
+    for cond in ['control', 'DBS ON', 'DBS OFF']:
+        x = np.array(behav_measure_dict[cond], dtype=float)
+        y = np.array(scale_dict[cond], dtype=float)
+
+        # Keep only subjects with valid values for BOTH measures
+        valid = np.isfinite(x) & np.isfinite(y)
+        x_clean = x[valid]
+        y_clean = y[valid]
+
+        slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+            x_clean, y_clean
+        )
+
+        plt.plot(
+            x_clean,
+            intercept + slope * x_clean,
+            color=color_dict[cond]
+        )
+
+        p_vals[cond] = p_value
+
+
+    # Fit linear regression line across all conditions
+
+    x_all = np.concatenate([
+        np.array(behav_measure_dict['control'], dtype=float),
+        np.array(behav_measure_dict['DBS ON'], dtype=float),
+        np.array(behav_measure_dict['DBS OFF'], dtype=float)
+    ])
+
+    y_all = np.concatenate([
+        np.array(scale_dict['control'], dtype=float),
+        np.array(scale_dict['DBS ON'], dtype=float),
+        np.array(scale_dict['DBS OFF'], dtype=float)
+    ])
+
+    # Remove subjects with NaN/inf in either variable
+    valid = np.isfinite(x_all) & np.isfinite(y_all)
+    x_all_clean = x_all[valid]
+    y_all_clean = y_all[valid]
+
+    slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+        x_all_clean,
+        y_all_clean
+    )
+
+    # Sort x values so the regression line is plotted cleanly
+    x_plot = np.sort(x_all_clean)
+
+    plt.plot(
+        x_plot,
+        intercept + slope * x_plot,
+        'black',
+        label=f'Linear fit: r={r_value:.2f}, p={p_value:.3f}'
+    )
 
     plt.ylabel(f'{scale_name} Score')
     plt.xlabel(f'{behav_measure_name}')
     plt.title(f'Correlation between {scale_name} and {behav_measure_name}\nLinear fit group: r={r_value:.2f}, p={p_value:.3f}')
     markers=["s","o","^"]
     f = lambda m,c: plt.plot([],[],marker=m, color=c, ls="none")[0]
-    handles = [f(markers[i], "k") for i in range(3)]
-    labels = ["control", "dbs on", "dbs off"]
-    plt.legend(handles, labels, loc=3, framealpha=1)
+    # handles = [f(markers[i], "k") for i in range(3)]
+    # labels = [f"control (p={p_vals['control']:.3f})", f"DBS ON (p={p_vals['DBS ON']:.3f})", f"DBS OFF (p={p_vals['DBS OFF']:.3f})"]
+    # plt.legend(handles, labels, loc=3, framealpha=1)
+    markers = ["s", "o", "^"]
+    conds_ordered = ['control', 'DBS ON', 'DBS OFF']
+    f = lambda m, c: plt.plot([], [], marker=m, color=c, ls="none")[0]
+    handles = [f(markers[i], color_dict[conds_ordered[i]]) for i in range(3)]
+    labels = [f"control (p={p_vals['control']:.3f})", f"DBS ON (p={p_vals['DBS ON']:.3f})", f"DBS OFF (p={p_vals['DBS OFF']:.3f})"]
+    legend = plt.legend(handles, labels, loc=3, framealpha=1)
+    # Optional: also color the legend text to match
+    for text, cond in zip(legend.get_texts(), conds_ordered):
+        text.set_color(color_dict[cond])
     plt.tight_layout()
     plt.savefig(join(saving_path, f'{behav_measure_name}_{scale_name}_correlation.{save_as}'), dpi=300)
     if show_plot:
