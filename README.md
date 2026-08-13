@@ -34,7 +34,7 @@ BEHAV_6_correlation_task_scales.ipynb
 LFP:
 LFP_0_epoch_preproc.ipynb
 LFP_1_check_preprocessed_lfp_epochs.ipynb
-LFP_2_LFP_epochs_analysis.ipynb
+LFP_2_epochs_analysis.ipynb
 
 OTHER:
 OTHER_reconstruct_behav_from_xdf.ipynb
