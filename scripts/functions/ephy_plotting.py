@@ -2198,6 +2198,7 @@ def eeg_tfr_pow_change_cond(
 def plot_raw_stim(
         session_ID: str, 
         raw: mne.io.Raw,
+        ch_dict: dict,
         saving_path: str
         ):
     """
@@ -2209,30 +2210,41 @@ def plot_raw_stim(
     """
 
     sf = raw.info['sfreq']
-    L_chan = raw.get_data(picks=raw.ch_names[0])[0]
-    R_chan = raw.get_data(picks=raw.ch_names[1])[0]
-    stim_L_chan = raw.get_data(picks=raw.ch_names[4])[0]
-    stim_R_chan = raw.get_data(picks=raw.ch_names[5])[0]
-    #timescale = np.arange(0, len(L_chan)/sf, 1/sf)
+    ch_names = raw.info['ch_names']
+    stim = True
+
+    L_chan = raw.get_data(picks=raw.ch_names[ch_dict['left_LFP']])[0]
+    R_chan = raw.get_data(picks=raw.ch_names[ch_dict['right_LFP']])[0]
+
+    if ch_dict['left_stim'] is not None and ch_dict['right_stim'] is not None:
+        stim_L_chan = raw.get_data(picks=raw.ch_names[ch_dict['left_stim']])[0]
+        stim_R_chan = raw.get_data(picks=raw.ch_names[ch_dict['right_stim']])[0]
+    else: 
+        print('WARNING: No stimulation data available')
+        stim = False
+
     timescale = raw.times
 
     plt.figure(figsize=(15,5))
     fig, ax = plt.subplots(2,2, figsize=(15,5))
-    ax[0,0].plot(timescale, L_chan*1e6, label=raw.ch_names[0])
-    ax[0,0].set_title(raw.ch_names[0])
+    ax[0,0].plot(timescale, L_chan*1e6, label=raw.ch_names[ch_dict['left_LFP']])
+    ax[0,0].set_title(raw.ch_names[ch_dict['left_LFP']])
+    ax[0,1].plot(timescale, R_chan*1e6, label=raw.ch_names[ch_dict['right_LFP']])
+    ax[0,1].set_title(raw.ch_names[ch_dict['right_LFP']])
     ax[0,0].set_ylabel('LFP amplitude (µV)')
-    ax[1,0].plot(timescale, stim_L_chan, color = 'orange', label='Stim left')
-    ax[1,0].set_ylabel('Stimulation amplitude (mA)')
-    ax[1,0].set_xlabel('Time (s)')
 
-    #ax[0,1].legend()
-    ax[0,1].plot(timescale, R_chan*1e6, label=raw.ch_names[1])
-    ax[0,1].set_title(raw.ch_names[1])
-    ax[1,1].plot(timescale, stim_R_chan, color= 'orange', label='Stim right')
-    
+    if stim:
+        ax[1,0].plot(timescale, stim_L_chan, color = 'orange', label='Stim left')
+        ax[1,1].plot(timescale, stim_R_chan, color= 'orange', label='Stim right')
+        ax[1,0].set_ylabel('Stimulation amplitude (mA)')
+        ax[1,1].set_ylabel('Stimulation amplitude (mA)')
+
+    ax[1,0].set_xlabel('Time (s)')
+    ax[1,1].set_xlabel('Time (s)') 
+
     fig.suptitle(f'Raw data and stimulation data - {session_ID}')
     figtitle = f'Raw data and stimulation data - {session_ID}.png'
-    plt.savefig(join(saving_path,figtitle), transparent=False)
+    plt.savefig(join(saving_path, figtitle), transparent=False)
 
 
 
@@ -2273,13 +2285,13 @@ def plot_psd_log(
     ax[1,0].set_xlabel('Frequency (Hz)')
     #ax[1,0].set_ylabel('log(Power)')
     ax[1,0].set_ylabel('Power (µV²/Hz)')
-    ax[1,0].set_xlim([0, 50])
+    ax[1,0].set_xlim([0, 40])
     ax[1,0].set_title(raw.ch_names[0])
     #ax[1,1].plot(freqs_right,np.log(psd_right))
     ax[1,1].plot(freqs_right, psd_right*1e12)
     ax[1,1].set_xlabel('Frequency (Hz)')
     ax[1,1].set_ylabel('Power (µV²/Hz)')
-    ax[1,1].set_xlim([0, 50])
+    ax[1,1].set_xlim([0, 40])
     ax[1,1].set_title(raw.ch_names[1])
     
 
@@ -2344,10 +2356,23 @@ def plot_stft(
 
 
 # Time-frequency plot (Short-Time Fourier Transform) with stimulation apmlitude
-def plot_stft_stim(session_ID,
-                   raw, 
-                   is_filt: bool = False,
-                   saving_path: str = None, vmin= None, vmax= None, fmin= 0, fmax=90):
+def plot_stft_stim(
+        session_ID,
+        raw, 
+        is_filt: bool = False,
+        saving_path: str = None, 
+        ch_dict: dict = {
+                'left_LFP': 0,
+                'right_LFP': 1,
+                'left_stim': 4,
+                'right_stim': 5
+                },
+        vmin= None, 
+        vmax= None,
+        fmin= 0, 
+        fmax=90,
+        save_as: str = 'png'
+        ):
         """
         Function performs a Short Time Fourier Transformation to data and plots the spectrograms (TFR plots) 
         with stimulation amplitude on top
@@ -2359,9 +2384,11 @@ def plot_stft_stim(session_ID,
         - sf: sampling frequency
         - session_id: session id, e.g., sub005 OFF MID
         """
+        ch_names = raw.info['ch_names']
+        stim = True
 
-        L_chan = raw.get_data(picks=raw.ch_names[0])[0]
-        R_chan = raw.get_data(picks=raw.ch_names[1])[0]
+        L_chan = raw.get_data(picks=raw.ch_names[ch_dict['left_LFP']])[0]
+        R_chan = raw.get_data(picks=raw.ch_names[ch_dict['right_LFP']])[0]
 
         f_left, t_left, Zxx_left = scipy.signal.stft(
             L_chan, raw.info['sfreq'], nperseg=int(round(raw.info['sfreq'])), noverlap = int(round(raw.info['sfreq'])/2), nfft=int(round(raw.info['sfreq']))
@@ -2370,24 +2397,27 @@ def plot_stft_stim(session_ID,
             R_chan, raw.info['sfreq'], nperseg=int(round(raw.info['sfreq'])), noverlap = int(round(raw.info['sfreq'])/2), nfft=int(round(raw.info['sfreq']))
             )
         
-        #Plot Spectrograms of both STNs
+        # Plot Spectrograms of both STNs
         fig, axes = plt.subplots(1,2, figsize = (14,6)) 
 
         ax_c = 0
-        stim = 4
+        if ch_dict['left_stim'] is None and ch_dict['right_stim'] is None:
+            stim = False
+        else:
+            stim = ch_dict['left_stim']
         
         for kj in np.array([0,1]):
                 ax2 = axes[kj].twinx() # make right axis linked to the left one
-                if kj == 1:
+                if kj == 1 and stim:
                         stim_data = raw.get_data(picks = raw.ch_names[stim])[0] # define stim channel
                         stim_data = stim_data*1e6  # to get milliampers
                         max_stim = np.nanmax(stim_data)
-                elif kj == 0:
+                elif kj == 0 and stim:
                         stim_data = raw.get_data(picks = raw.ch_names[stim])[0]
                         stim_data = stim_data*1e6
                         max_stim = np.nanmax(stim_data)
 
-                #Plot STFT data
+                # Plot STFT data
                 if kj == 0:
                         Pxx = np.abs(Zxx_left)
                         t = t_left
@@ -2407,21 +2437,23 @@ def plot_stft_stim(session_ID,
                 axes[ax_c].set_xlim(0, raw.n_times / 250)
 
                 # Plot stim channel on top
-                ax2.plot(raw.times, stim_data, 'white', linewidth = 3, linestyle = ':')
-                ax2.set_yticks(np.arange(0,4.5,0.5))
+                if stim:
+                    ax2.plot(raw.times, stim_data, 'white', linewidth = 3, linestyle = ':')
+                    ax2.set_yticks(np.arange(0,4.5,0.5))
 
                 # Right y axis label only for second plot
-                if kj == 1:
+                if kj == 1 and stim:
                         ax2.set_ylabel('Stimulation Amplitude [mA]')
                 # Left y-axis label only for first plot
                 if kj == 0:
                         axes[ax_c].set_ylabel('Frequency [Hz]')
                 
                 axes[ax_c].set_xlabel('Time [sec]')
-                axes[ax_c].set_title(f'{raw.ch_names[kj]} \n {raw.ch_names[kj+4]} \n {max_stim}mA')
+                # axes[ax_c].set_title(f'{raw.ch_names[kj]} \n {raw.ch_names[kj+4]} \n {max_stim}mA')
 
                 ax_c += 1
-                stim += 1
+                if stim:
+                    stim += 1
                 if kj == 1: 
                         plt.colorbar(im, ax=axes, orientation='horizontal', fraction=0.046, pad=0.07)
 
@@ -2431,19 +2463,13 @@ def plot_stft_stim(session_ID,
                 elif is_filt:
                     fig.suptitle(f"Filtered - {session_ID}", fontsize=16, y=0.99)  # 'y' controls vertical positioning
 
-        # Allows for text in figure to be modified as text, when saved as PDF!
-        matplotlib.rcParams['pdf.fonttype'] = 42
-        matplotlib.rcParams['ps.fonttype'] = 42
-        
+
         if not is_filt:
-                figtitle = f'RAW_STFT_stim - {session_ID}.png'
-                figtitle_pdf = f'RAW_STFT_stim - {session_ID}.pdf'
+                figtitle = f'RAW_STFT_stim - {session_ID}.{save_as}'
         elif is_filt:
-                figtitle = f'filtered_STFT_stim - {session_ID}.png'
-                figtitle_pdf = f'filtered_STFT_stim - {session_ID}.pdf'
+                figtitle = f'filtered_STFT_stim - {session_ID}.{save_as}'
         
         if saving_path is not None:
-            #plt.savefig(join(saving_path, figtitle_pdf))
             plt.savefig(join(saving_path, figtitle))
 
 

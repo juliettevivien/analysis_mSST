@@ -618,28 +618,33 @@ def compare_band_power(all_sub_session_dict, condition_a='DBS OFF', condition_b=
 
 
 def compute_psd_welch(
-        raw: mne.io.Raw
+        raw: mne.io.Raw,
+        start_time: float = 10,
+        end_time: float = 10,
+        ch_dict: dict = None
 ):
     n_fft = int(round(raw.info['sfreq']))
     n_overlap=int(round(raw.info['sfreq'])/2)
 
-    L_chan = raw.get_data(picks=raw.ch_names[0])[0]
-    R_chan = raw.get_data(picks=raw.ch_names[1])[0]
+    L_chan_i = raw.get_data(picks=raw.ch_names[ch_dict['left_LFP']])[0]
+    R_chan_i = raw.get_data(picks=raw.ch_names[ch_dict['right_LFP']])[0]
 
-    #start = raw.info['sfreq'] * 200
-    #end = raw.info['sfreq'] * 300
+    start_ind = raw.info['sfreq'] * start_time
+    end_ind = raw.info['sfreq'] * (raw.times[-1] - end_time)
 
-    #L_chan = L_chan_i[int(start):int(end)]
-    #R_chan = R_chan_i[int(start):int(end)]
+    L_chan = L_chan_i[int(start_ind):int(end_ind)]
+    R_chan = R_chan_i[int(start_ind):int(end_ind)]
 
     psd_left, freqs_left = mne.time_frequency.psd_array_welch(
         L_chan,raw.info['sfreq'],fmin=0,
         fmax=125,n_fft=n_fft,
         n_overlap=n_overlap)
+    
     psd_right, freqs_right = mne.time_frequency.psd_array_welch(
         R_chan,raw.info['sfreq'],fmin=0,
         fmax=125,n_fft=n_fft,
         n_overlap=n_overlap)
+    
     # Calculate the frequency and time resolution possible based on the n_fft and noverlap parameters: 
     # freq_res = 1/(n_fft/sf) in Hz
     # Here we have a sf=250 so n_fft = 250 samples.

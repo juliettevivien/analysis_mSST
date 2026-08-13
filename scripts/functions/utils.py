@@ -132,9 +132,10 @@ def compute_band_metrics(psd, freqs, bands=None):
         
         # Convert to µV² and µV
         band_power_uV2 = band_power_V2 * 1e12
-        band_rms_uV = np.sqrt(band_power_uV2)
+        # band_rms_uV = np.sqrt(band_power_uV2)
         
-        results[name] = {'power_uV2': band_power_uV2, 'rms_uV': band_rms_uV}
+        # results[name] = {'power_uV2': band_power_uV2, 'rms_uV': band_rms_uV}
+        results[name] = band_power_uV2
 
     return results
 
