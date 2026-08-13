@@ -23,63 +23,161 @@ from mne.stats import permutation_cluster_test
 
 
 
-def plot_tfr_result(
-        all_percentage_change,
-        epochs_cond,
-        roi,
-        tfr_args,
-        tmin_tmax,
-        vmin_vmax,
-        baseline_correction,
-        baseline_correction_method,
-        sub_num,
-        sub = None
-        ):
-    title_prefix = "Power change" if baseline_correction else "Power"
-    bc_note = "" if baseline_correction else ", no baseline correction"
-    subject_info = f"nSub = {sub_num}" if sub_num > 1 else sub
-    #fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
+# def plot_tfr_result(
+#         group,
+#         all_percentage_change,
+#         times,
+#         epochs_cond,
+#         roi,
+#         tfr_args,
+#         tmin_tmax,
+#         vmin_vmax,
+#         baseline_correction,
+#         baseline_correction_method,
+#         sub_num,
+#         sub = None,
+#         mean_rt_all = None,
+#         mean_ssd_all = None,
+#         saving_path = None,
+#         save_as = 'png'
+#         ):
+#     add_rt = False
+#     add_ssd = False
 
-    # Set the x label based on what the epochs are centered on:
-    aligned_on = epochs_cond[0].split('_')[-1]
-    if aligned_on == 'response':
-        xlabel = 'Time from RESPONSE (ms)'
-    elif aligned_on == 'feedback':
-        xlabel = 'Time from FEEDBACK (ms)'
-    elif aligned_on == 'square':
-        xlabel = 'Time from GO cue (ms)'
-    elif aligned_on == 'triangle':
-        xlabel = 'Time from STOP/CONTINUE cue (ms)'
-        # if epoch_type == 'GS': 
-        #     xlabel = 'Time from STOP cue (ms)'
-        # elif epoch_type == 'GC':
-        #     xlabel = 'Time from CONTINUE cue (ms)'
+#     title_prefix = "Power change" if baseline_correction else "Power"
+#     bc_note = "" if baseline_correction else ", no baseline correction"
+#     subject_info = f"nSub = {sub_num}" if sub_num > 1 else sub
+#     cond_type, outcome = epochs_cond.split('_')[:2]
 
-    # Compute grand averages
-    avg_percentage_change = np.nanmean(all_percentage_change, axis=0)       
+#     # Set the x label based on what the epochs are centered on:
+#     aligned_on = epochs_cond.split('_')[-1]
+#     if aligned_on == 'response':
+#         xlabel = 'Time from RESPONSE (s)'
+#     elif aligned_on == 'feedback':
+#         xlabel = 'Time from FEEDBACK (s)'
+#     elif aligned_on == 'square':
+#         xlabel = 'Time from GO cue (s)'
+#         add_rt = True if (
+#         (cond_type in ('lmGO', 'GO', 'GF', 'GC', 'slowGC', 'fastGC') and outcome == 'successful') or
+#         (cond_type == 'GS' and outcome == 'unsuccessful')
+#         ) else False
+#         add_ssd = True if any(x in epochs_cond for x in ('GS', 'GC', 'slowGC', 'fastGC')) else False
+#     elif aligned_on == 'triangle':
+#         xlabel = 'Time from STOP/CONTINUE cue (s)'
+#         add_rt = True if (cond_type == 'GS' and outcome == 'unsuccessful') or (cond_type in ('GC', 'slowGC', 'fastGC') and outcome == 'successful') else False
 
-    # Compute min and max along the frequency axis
-    if not baseline_correction:
-        min_values = np.min(avg_percentage_change)  # Shape: (n_subjects, n_times)
-        max_values = np.max(avg_percentage_change)
+#     # Compute grand averages
+#     avg_percentage_change = np.nanmean(all_percentage_change, axis=0)       
+
+#     # Compute min and max along the frequency axis
+#     if not baseline_correction:
+#         min_values = np.min(avg_percentage_change)  # Shape: (n_subjects, n_times)
+#         max_values = np.max(avg_percentage_change)
         
-    # Plot Left STN
-    plt.figure(figsize=(10, 6))
-    vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
-    plt.imshow(avg_percentage_change, aspect='auto', origin='lower', 
-                            extent=[tmin_tmax[0], tmin_tmax[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
-                            cmap='jet', vmin=vmin, vmax=vmax)
-    plt.xlabel(xlabel)
-    plt.ylabel('Frequency (Hz)')
-    plt.title(f"{title_prefix} - {epochs_cond} {roi}, {subject_info}{bc_note}")
-    if baseline_correction:
-        if baseline_correction_method == 'single_trial':
-            colorbar_label = 'Change from baseline (dB)'
-        else:
-            colorbar_label = 'Percent change from baseline (%)'
-    else:
-        colorbar_label = 'Mean Power (µV²)'
-    plt.colorbar(label=colorbar_label)    
+#     # Plot Left STN
+#     # plt.figure(figsize=(4, 6))
+#     fig, ax = plt.subplots(figsize=(4, 6), constrained_layout=True)
+#     vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
+#     ax.imshow(avg_percentage_change, aspect='auto', origin='lower', 
+#                             extent=[times[0], times[-1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+#                             cmap='jet', vmin=vmin, vmax=vmax)
+#     ax.set_xlabel(xlabel)
+#     ax.set_ylabel('Frequency (Hz)')
+#     title_text = f"{title_prefix} \n {group} \n {epochs_cond} \n {roi} \n {subject_info}{bc_note}"
+#     fig.suptitle(title_text, fontsize=10)
+#     # ax.set_title(f"{title_prefix} \n {group} \n {epochs_cond} \n {roi} \n {subject_info}{bc_note}")
+#     if add_rt:
+#         avg_rt = np.nanmean(mean_rt_all)*1000
+#         if aligned_on == 'triangle':
+#             avg_rt -= np.nanmean(mean_ssd_all)*1000
+#         ax.axvline(x=avg_rt, color='black', linestyle='-', label='Mean RT')
+#     if add_ssd and mean_ssd_all is not None:
+#         avg_ssd = np.nanmean(mean_ssd_all)*1000
+#         ax.axvline(x=avg_ssd, color='k', linestyle='--', label='Mean SSD')
+        
+#     if baseline_correction:
+#         if baseline_correction_method == 'single_trial':
+#             colorbar_label = 'Change from baseline (dB)'
+#         else:
+#             colorbar_label = 'Percent change from baseline (%)'
+#     else:
+#         colorbar_label = 'Mean Power (µV²)'
+#     fig.colorbar(ax.images[0], label=colorbar_label)    
+#     fig.savefig(os.path.join(saving_path, f"{group}_{epochs_cond}_{roi}_{subject_info}.{save_as}"))
+
+
+# def plot_tfr_result(
+#         all_percentage_change,
+#         epochs_cond,
+#         roi,
+#         tfr_args,
+#         tmin_tmax,
+#         vmin_vmax,
+#         baseline_correction,
+#         baseline_correction_method,
+#         sub_num,
+#         mean_rt,
+#         mean_ssd,
+#         sub = None,
+#         ):
+#     title_prefix = "Power change" if baseline_correction else "Power"
+#     bc_note = "" if baseline_correction else ", no baseline correction"
+#     subject_info = f"nSub = {sub_num}" if sub_num > 1 else sub
+#     #fig.suptitle(f"{title_prefix} - {outcome_str} {epoch_type}, {subject_info}{bc_note}")
+
+#     # Set the x label based on what the epochs are centered on:
+#     aligned_on = epochs_cond[0].split('_')[-1]
+#     if aligned_on == 'response':
+#         xlabel = 'Time from RESPONSE (ms)'
+#     elif aligned_on == 'feedback':
+#         xlabel = 'Time from FEEDBACK (ms)'
+#     elif aligned_on == 'square':
+#         xlabel = 'Time from GO cue (ms)'
+#     elif aligned_on == 'triangle':
+#         xlabel = 'Time from STOP/CONTINUE cue (ms)'
+#         # if epoch_type == 'GS': 
+#         #     xlabel = 'Time from STOP cue (ms)'
+#         # elif epoch_type == 'GC':
+#         #     xlabel = 'Time from CONTINUE cue (ms)'
+
+#     # Compute grand averages
+#     # avg_percentage_change = np.nanmean(all_percentage_change, axis=0)       
+
+#     # Compute min and max along the frequency axis
+#     if not baseline_correction:
+#         min_values = np.min(avg_percentage_change)  # Shape: (n_subjects, n_times)
+#         max_values = np.max(avg_percentage_change)
+        
+#     # Plot
+#     plt.figure(figsize=(10, 6))
+#     vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
+#     # plt.imshow(
+#     #     avg_percentage_change, 
+#     #     aspect='auto', origin='lower', 
+#     #     extent=[tmin_tmax[0], tmin_tmax[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+#     #     cmap='jet', vmin=vmin, vmax=vmax
+#     #     )
+#     plt.imshow(
+#         all_percentage_change, 
+#         aspect='auto', origin='lower', 
+#         extent=[tmin_tmax[0], tmin_tmax[1], tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
+#         cmap='jet', vmin=vmin, vmax=vmax
+#         )
+#     plt.xlabel(xlabel)
+#     plt.ylabel('Frequency (Hz)')
+#     plt.title(f"{title_prefix} - {epochs_cond} {roi}, {subject_info}{bc_note}")
+#     plt.axvline(x = (mean_rt*1000), color='black', linestyle='--', label=f'Mean RT: {mean_rt:.2f} ms')
+#     plt.legend() 
+
+#     if baseline_correction:
+#         if baseline_correction_method == 'single_trial':
+#             colorbar_label = 'Change from baseline (dB)'
+#         else:
+#             colorbar_label = 'Percent change from baseline (%)'
+#     else:
+#         colorbar_label = 'Mean Power (µV²)'
+
+#     plt.colorbar(label = colorbar_label)    
 
 
 

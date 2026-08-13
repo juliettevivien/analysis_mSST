@@ -5,9 +5,6 @@ import os
 
 
 
-
-
-
 def get_tfr_decomposition(
         epochs, 
         cond_of_interest, 
@@ -15,13 +12,24 @@ def get_tfr_decomposition(
         tfr_args, 
         baseline_correction, 
         baseline_correction_method, 
-        tmin_tmax
+        tmin_tmax,
+        threshold_GC
         ):
     latency_matched = False
+    slowGC = False
+    fastGC = False
+    mean_rt = None
+    mean_ssd = None
     
     if cond_of_interest.split('_')[0] == 'lmGO':
         latency_matched = True
         epoch_type = 'GO'
+    elif cond_of_interest.split('_')[0] == 'slowGC':
+        slowGC = True
+        epoch_type = 'GC'
+    elif cond_of_interest.split('_')[0] == 'fastGC':
+        fastGC = True
+        epoch_type = 'GC'
     else:
         # Parse epoch condition
         epoch_type = cond_of_interest.split('_')[0]
@@ -40,6 +48,37 @@ def get_tfr_decomposition(
         slow_mask = rt >= threshold
         data = data[slow_mask] 
 
+    if slowGC:
+        rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+        ssd = np.asarray(data.metadata['continue_signal_time'])
+        threshold = threshold_GC/1000 # this value should be added for each trial to the SSD 
+        rt_from_continue = rt - ssd
+        slow_mask = rt_from_continue >= threshold
+        # slow_mask = rt >= (ssd + threshold)
+        data = data[slow_mask]
+
+    if fastGC:
+        rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+        ssd = np.asarray(data.metadata['continue_signal_time'])
+        threshold = threshold_GC/1000 # this value should be added for each trial to the SSD 
+        rt_from_continue = rt - ssd
+        fast_mask = rt_from_continue < threshold
+        data = data[fast_mask]
+
+    # get RTs and SSDs for later plotting:
+    rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+    if np.any(~np.isnan(rt)):        # at least one value that is not nan
+        mean_rt = np.nanmean(rt)
+    else:
+        mean_rt = None
+
+    ssd = None
+    if epoch_type == 'GS':
+        ssd = np.asarray(data.metadata['stop_signal_time'])
+    elif epoch_type == 'GC':
+        ssd = np.asarray(data.metadata['continue_signal_time'])
+    mean_ssd = np.nanmean(ssd) if ssd is not None else None
+
     # Select only desired channels
     epochs = data.copy().pick(ch_names)
 
@@ -48,10 +87,13 @@ def get_tfr_decomposition(
     power.data *= 1e12  # V² → (µV)²
     
     # Average across channels if multiple channels are specified
-    power_mean = np.nanmean(power.data, axis=1)  # (n_epochs, n_freqs, n_times)
+    if len(ch_names) > 1:
+        power_mean = np.nanmean(power.data, axis=1)  # (n_epochs, n_freqs, n_times)
+    else:
+        power_mean = power.data[:, 0, :, :]  # (n_epochs, n_freqs, n_times)
 
     times = power.times * 1000
-    dt_ms = 1/round(epochs.info['sfreq'])
+    dt_ms = 1000/round(epochs.info['sfreq'])
     #n_times_new = int(np.round(((tmin_tmax[1]- tmin_tmax[0])*1000) / dt_ms))
     freqs = power.freqs
 
@@ -74,20 +116,13 @@ def get_tfr_decomposition(
     
         new_epochs = []
         if baseline_correction and baseline_correction_method == 'group_average':
-            baseline_power = np.empty((power_mean.shape[0], power_mean.shape[1], 1))  # (n_trials, n_freqs, 1)
+            # baseline_power = np.empty((power_mean.shape[0], power_mean.shape[1], 1))  # (n_trials, n_freqs, 1)
+            mean_power = np.nanmean(power_mean, axis=0)  # (n_freqs, n_times)
+            # Define baseline period for change calculation
+            baseline_indices = (times >= -500) & (times <= -200)
+            baseline_power = np.nanmean(mean_power[:, baseline_indices], axis=1, keepdims=True)  # shape: (n_freqs, 1 time)            
         
         for i in range(power_mean.shape[0]):
-            if baseline_correction and baseline_correction_method == 'group_average':
-                # get the baseline values for this trial
-                bl_start = -500  # in ms
-                bl_end = -200  # in ms
-                bl_idx = (times >= bl_start) & (times <= bl_end)
-                # Compute mean power in this window for all frequencies
-                bl_mean = np.nanmean(power_mean[i][ :, bl_idx], axis=1, keepdims=True)
-
-                # Store baseline power
-                baseline_power[i] = bl_mean                    
-            
             t0_idx = t0_per_trial[i] + tmin_tmax[0]*1000
             t1_idx = t0_per_trial[i] + tmin_tmax[1]*1000
             time_idx = (times >= t0_idx) & (times <= t1_idx)
@@ -95,17 +130,13 @@ def get_tfr_decomposition(
 
         min_len = min(e.shape[1] for e in new_epochs)
         new_epochs = [e[:, :min_len] for e in new_epochs]
-        new_epochs = np.stack(new_epochs, axis=0)
-        #new_epochs = np.stack(new_epochs, axis=0)  # shape: (n_epochs, n_freqs, n_times_new)
+        new_epochs = np.stack(new_epochs, axis=0)  # shape: (n_epochs, n_freqs, n_times_new)
         new_times = np.arange(tmin_tmax[0]*1000, tmin_tmax[1]*1000, dt_ms)
         mean_power = np.nanmean(new_epochs, axis=0)
         times = new_times
+        change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
+        # mean_power = change
 
-        if baseline_correction and baseline_correction_method == 'group_average':
-            baseline_power = np.nanmean(baseline_power, axis=0)  # shape: (n_freqs, 1 time)
-            change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
-            mean_power = change
-    
     else:
         mean_power = np.nanmean(power_mean, axis=0)  # (n_freqs, n_times)
 
@@ -114,13 +145,280 @@ def get_tfr_decomposition(
             baseline_indices = (times >= -500) & (times <= -200)
             baseline_power = np.nanmean(mean_power[:, baseline_indices], axis=1, keepdims=True)  # shape: (n_freqs, 1 time)
             change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
-            mean_power = change
+            # mean_power = change
         
         time_idx = (times >= tmin_tmax[0]*1000) & (times <= tmin_tmax[1]*1000)
-        mean_power = mean_power[:, time_idx]
+        change = change[:, time_idx]
         times = times[time_idx]
 
-    return mean_power, times, freqs        
+    return change, times, freqs, mean_rt, mean_ssd        
+
+
+
+# def get_tfr_decomposition(
+#         epochs, 
+#         cond_of_interest, 
+#         ch_names, 
+#         tfr_args, 
+#         baseline_correction, 
+#         baseline_correction_method, 
+#         tmin_tmax,
+#         threshold_GC: None
+#         ):
+#     latency_matched = False
+#     slowGC = False
+#     fastGC = False
+#     mean_rt = None
+#     mean_ssd = None
+    
+#     if cond_of_interest.split('_')[0] == 'lmGO':
+#         latency_matched = True
+#         epoch_type = 'GO'
+#     elif cond_of_interest.split('_')[0] == 'slowGC':
+#         slowGC = True
+#         epoch_type = 'GC'
+#     elif cond_of_interest.split('_')[0] == 'fastGC':
+#         fastGC = True
+#         epoch_type = 'GC'
+#     else:
+#         # Parse epoch condition
+#         epoch_type = cond_of_interest.split('_')[0]
+
+#     outcome_str, aligned_str = cond_of_interest.split('_')[1], cond_of_interest.split('_')[2]
+#     outcome = 1.0 if outcome_str == "successful" else 0.0     
+
+#     # Select the appropriate epochs
+#     type_mask = epochs.metadata["event"] == epoch_type
+#     outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
+#     data = epochs[type_mask & outcome_mask]    
+
+#     if latency_matched:
+#         rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+#         threshold = np.percentile(rt, 50)
+#         slow_mask = rt >= threshold
+#         data = data[slow_mask] 
+
+#     if slowGC:
+#         rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+#         ssd = np.asarray(data.metadata['continue_signal_time'])
+#         threshold = threshold_GC/1000 # this value should be added for each trial to the SSD 
+#         rt_from_continue = rt - ssd
+#         slow_mask = rt_from_continue >= threshold
+#         # slow_mask = rt >= (ssd + threshold)
+#         data = data[slow_mask]
+
+#     if fastGC:
+#         rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+#         ssd = np.asarray(data.metadata['continue_signal_time'])
+#         threshold = threshold_GC/1000 # this value should be added for each trial to the SSD 
+#         rt_from_continue = rt - ssd
+#         fast_mask = rt_from_continue < threshold
+#         data = data[fast_mask]
+
+#     # get RTs and SSDs for later plotting:
+#     rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+#     if np.any(~np.isnan(rt)):        # at least one value that is not nan
+#         mean_rt = np.nanmean(rt)
+#     else:
+#         mean_rt = None
+
+#     ssd = None
+#     if epoch_type == 'GS':
+#         ssd = np.asarray(data.metadata['stop_signal_time'])
+#     elif epoch_type == 'GC':
+#         ssd = np.asarray(data.metadata['continue_signal_time'])
+#     mean_ssd = np.nanmean(ssd) if ssd is not None else None
+
+#     # Select only desired channels
+#     epochs = data.copy().pick(ch_names)
+
+#     # Compute TFR
+#     power = epochs.compute_tfr(**tfr_args)  # shape: (n_epochs, n_channels, n_freqs, n_times)      
+#     power.data *= 1e12  # V² → (µV)²
+    
+#     # Average across channels if multiple channels are specified
+#     if len(ch_names) > 1:
+#         power_mean = np.nanmean(power.data, axis=1)  # (n_epochs, n_freqs, n_times)
+#     else:
+#         power_mean = power.data[:, 0, :, :]  # (n_epochs, n_freqs, n_times)
+
+#     times = power.times * 1000 # convert to ms
+#     dt_ms = 1000/round(epochs.info['sfreq'])
+#     #n_times_new = int(np.round(((tmin_tmax[1]- tmin_tmax[0])*1000) / dt_ms))
+#     freqs = power.freqs
+
+#     # crop to keep only times of interest               
+#     # determine t0 et t1 indices based on tmin_tmax and aligned_str
+#     if aligned_str != 'square':
+#         if aligned_str == 'response':
+#             t0_per_trial = np.array(data.metadata['key_resp_experiment.rt']) * 1000  # convert to ms
+#         elif aligned_str == 'feedback':
+#             if epoch_type == 'GS' and outcome_str == 'successful':
+#                 t0_per_trial = (np.array(data.metadata['stop_signal_time']) + 1.5) * 1000  # feedback is at 1000 ms after response
+#             else:
+#                 t0_per_trial = (np.array(data.metadata['key_resp_experiment.rt']) + 0.5) * 1000  # feedback is at 500 ms after response
+#         elif aligned_str == 'triangle':
+#             if epoch_type == 'GS': 
+#                 ssd_column = 'stop_signal_time'
+#             elif epoch_type == 'GC':
+#                 ssd_column = 'continue_signal_time'                        
+#             t0_per_trial = np.array(data.metadata[ssd_column]) * 1000
+    
+#         new_epochs = []
+#         if baseline_correction and baseline_correction_method == 'group_average':
+#             # baseline_power = np.empty((power_mean.shape[0], power_mean.shape[1], 1))  # (n_trials, n_freqs, 1)
+#             mean_power = np.nanmean(power_mean, axis=0)  # (n_freqs, n_times)
+#             # Define baseline period for change calculation
+#             baseline_indices = (times >= -500) & (times <= -200)
+#             baseline_power = np.nanmean(mean_power[:, baseline_indices], axis=1, keepdims=True)  # shape: (n_freqs, 1 time)            
+        
+#         for i in range(power_mean.shape[0]):
+#             t0_idx = t0_per_trial[i] + tmin_tmax[0]*1000
+#             t1_idx = t0_per_trial[i] + tmin_tmax[1]*1000
+#             time_idx = (times >= t0_idx) & (times <= t1_idx)
+#             new_epochs.append(power_mean[i][:, time_idx])  # shape: (n_freqs, n_times_new)
+
+#         min_len = min(e.shape[1] for e in new_epochs)
+#         new_epochs = [e[:, :min_len] for e in new_epochs]
+#         new_epochs = np.stack(new_epochs, axis=0)  # shape: (n_epochs, n_freqs, n_times_new)
+#         new_times = np.arange(tmin_tmax[0]*1000, tmin_tmax[1]*1000, dt_ms)
+#         mean_power = np.nanmean(new_epochs, axis=0)
+#         times = new_times
+#         change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
+#         # mean_power = change
+
+#     else:
+#         mean_power = np.nanmean(power_mean, axis=0)  # (n_freqs, n_times)
+
+#         if baseline_correction and baseline_correction_method == 'group_average':
+#             # Define baseline period for change calculation
+#             # baseline_indices = (times >= -500) & (times <= -200)
+#             baseline_indices = (times >= -500) & (times <= 0)
+#             baseline_power = np.nanmean(mean_power[:, baseline_indices], axis=1, keepdims=True)  # shape: (n_freqs, 1 time)
+#             change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
+#             # mean_power = change
+        
+#         time_idx = (times >= tmin_tmax[0]*1000) & (times <= tmin_tmax[1]*1000)
+#         change = change[:, time_idx]
+#         times = times[time_idx]
+
+#     return change, times, freqs, mean_rt, mean_ssd        
+
+
+
+# def get_tfr_decomposition(
+#         epochs, 
+#         cond_of_interest, 
+#         ch_names, 
+#         tfr_args, 
+#         baseline_correction, 
+#         baseline_correction_method, 
+#         tmin_tmax
+#         ):
+#     latency_matched = False
+    
+#     if cond_of_interest.split('_')[0] == 'lmGO':
+#         latency_matched = True
+#         epoch_type = 'GO'
+#     else:
+#         # Parse epoch condition
+#         epoch_type = cond_of_interest.split('_')[0]
+
+#     outcome_str, aligned_str = cond_of_interest.split('_')[1], cond_of_interest.split('_')[2]
+#     outcome = 1.0 if outcome_str == "successful" else 0.0     
+
+#     # Select the appropriate epochs
+#     type_mask = epochs.metadata["event"] == epoch_type
+#     outcome_mask = epochs.metadata["key_resp_experiment.corr"] == outcome
+#     data = epochs[type_mask & outcome_mask]    
+
+#     if latency_matched:
+#         rt = np.asarray(data.metadata['key_resp_experiment.rt'])
+#         threshold = np.percentile(rt, 50)
+#         slow_mask = rt >= threshold
+#         data = data[slow_mask] 
+
+#     # Select only desired channels
+#     epochs = data.copy().pick(ch_names)
+
+#     # Compute TFR
+#     power = epochs.compute_tfr(**tfr_args)  # shape: (n_epochs, n_channels, n_freqs, n_times)      
+#     power.data *= 1e12  # V² → (µV)²
+    
+#     # Average across channels if multiple channels are specified
+#     power_mean = np.nanmean(power.data, axis=1)  # (n_epochs, n_freqs, n_times)
+
+#     times = power.times * 1000
+#     dt_ms = 1/round(epochs.info['sfreq'])
+#     #n_times_new = int(np.round(((tmin_tmax[1]- tmin_tmax[0])*1000) / dt_ms))
+#     freqs = power.freqs
+
+#     # crop to keep only times of interest               
+#     # determine t0 et t1 indices based on tmin_tmax and aligned_str
+#     if aligned_str != 'square':
+#         if aligned_str == 'response':
+#             t0_per_trial = np.array(data.metadata['key_resp_experiment.rt']) * 1000  # convert to ms
+#         elif aligned_str == 'feedback':
+#             if epoch_type == 'GS' and outcome_str == 'successful':
+#                 t0_per_trial = (np.array(data.metadata['stop_signal_time']) + 1.5) * 1000  # feedback is at 1000 ms after response
+#             else:
+#                 t0_per_trial = (np.array(data.metadata['key_resp_experiment.rt']) + 0.5) * 1000  # feedback is at 500 ms after response
+#         elif aligned_str == 'triangle':
+#             if epoch_type == 'GS': 
+#                 ssd_column = 'stop_signal_time'
+#             elif epoch_type == 'GC':
+#                 ssd_column = 'continue_signal_time'                        
+#             t0_per_trial = np.array(data.metadata[ssd_column]) * 1000
+    
+#         new_epochs = []
+#         if baseline_correction and baseline_correction_method == 'group_average':
+#             baseline_power = np.empty((power_mean.shape[0], power_mean.shape[1], 1))  # (n_trials, n_freqs, 1)
+        
+#         for i in range(power_mean.shape[0]):
+#             if baseline_correction and baseline_correction_method == 'group_average':
+#                 # get the baseline values for this trial
+#                 bl_start = -500  # in ms
+#                 bl_end = -200  # in ms
+#                 bl_idx = (times >= bl_start) & (times <= bl_end)
+#                 # Compute mean power in this window for all frequencies
+#                 bl_mean = np.nanmean(power_mean[i][ :, bl_idx], axis=1, keepdims=True)
+
+#                 # Store baseline power
+#                 baseline_power[i] = bl_mean                    
+            
+#             t0_idx = t0_per_trial[i] + tmin_tmax[0]*1000
+#             t1_idx = t0_per_trial[i] + tmin_tmax[1]*1000
+#             time_idx = (times >= t0_idx) & (times <= t1_idx)
+#             new_epochs.append(power_mean[i][:, time_idx])  # shape: (n_freqs, n_times_new)
+
+#         min_len = min(e.shape[1] for e in new_epochs)
+#         new_epochs = [e[:, :min_len] for e in new_epochs]
+#         new_epochs = np.stack(new_epochs, axis=0)
+#         #new_epochs = np.stack(new_epochs, axis=0)  # shape: (n_epochs, n_freqs, n_times_new)
+#         new_times = np.arange(tmin_tmax[0]*1000, tmin_tmax[1]*1000, dt_ms)
+#         mean_power = np.nanmean(new_epochs, axis=0)
+#         times = new_times
+
+#         if baseline_correction and baseline_correction_method == 'group_average':
+#             baseline_power = np.nanmean(baseline_power, axis=0)  # shape: (n_freqs, 1 time)
+#             change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
+#             mean_power = change
+    
+#     else:
+#         mean_power = np.nanmean(power_mean, axis=0)  # (n_freqs, n_times)
+
+#         if baseline_correction and baseline_correction_method == 'group_average':
+#             # Define baseline period for change calculation
+#             baseline_indices = (times >= -500) & (times <= -200)
+#             baseline_power = np.nanmean(mean_power[:, baseline_indices], axis=1, keepdims=True)  # shape: (n_freqs, 1 time)
+#             change = (mean_power - baseline_power) / baseline_power * 100  # percent change  # shape: (n_freqs, n_times)
+#             mean_power = change
+        
+#         time_idx = (times >= tmin_tmax[0]*1000) & (times <= tmin_tmax[1]*1000)
+#         mean_power = mean_power[:, time_idx]
+#         times = times[time_idx]
+
+#     return mean_power, times, freqs        
 
 
 
