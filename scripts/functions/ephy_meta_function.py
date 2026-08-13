@@ -6,8 +6,15 @@ import mne
 import pandas as pd
 import os
 import scipy 
+import json
 
 from functions.analysis import identify_significant_clusters
+
+working_path = os.path.dirname(os.getcwd())
+results_path = os.path.join(working_path, "results")
+threshold_file = os.path.join(results_path, 'gc_thresholds.json')
+with open(threshold_file, 'r') as f:
+    threshold_gc_dict = json.load(f)
 
 def plot_tfr_result_contrast_groups(
         groups,
@@ -20,7 +27,8 @@ def plot_tfr_result_contrast_groups(
         baseline_correction,
         baseline_correction_method,
         sub_num,
-        saving_path
+        saving_path,
+        save_as = 'png'
         ):
     
     add_rt = False
@@ -60,6 +68,7 @@ def plot_tfr_result_contrast_groups(
         print(f"The two groups have different time dimensions: {shape0[2]} vs {shape1[2]}. Cropping to the minimum length for contrast.")
     min_len = min(shape0[2], shape1[2])
     times = tfr_dict[groups[0]][epochs_cond]['times']
+    freqs = tfr_dict[groups[0]][epochs_cond]['freqs']
     tfr_dict[groups[0]][epochs_cond]['all_percentage_change'] = tfr_dict[groups[0]][epochs_cond]['all_percentage_change'][:, :, :min_len]
     tfr_dict[groups[1]][epochs_cond]['all_percentage_change'] = tfr_dict[groups[1]][epochs_cond]['all_percentage_change'][:, :, :min_len]
     times = times[:min_len]
@@ -183,7 +192,7 @@ def plot_tfr_result_contrast_groups(
             avg_ssd2 = np.nanmean(mean_ssd_all2)*1000
             ax.axvline(x=avg_ssd2, color='k', linestyle='--', label=f'Mean SSD {groups[1]}')
     
-    fig.savefig(os.path.join(saving_path, f"{epochs_cond}_{contrast}_{roi}_nSub{str(sub_num)}.png"))
+    fig.savefig(os.path.join(saving_path, f"{epochs_cond}_{contrast}_{roi}_nSub{str(sub_num)}.{save_as}"))
 
 
 def plot_tfr_result_contrast(
@@ -285,6 +294,7 @@ def plot_tfr_result_contrast(
     fig, ax = plt.subplots(figsize=(4, 6), constrained_layout=True)
     vmin, vmax = (vmin_vmax if baseline_correction else (min_values, max_values))
     times = tfr_dict[group]['contrast']['times'] 
+    freqs = tfr_dict[group]['contrast']['freqs']
     print(f'vmin: {vmin}, vmax: {vmax}')
     ax.imshow(avg_percentage_change, aspect='auto', origin='lower', 
                             # extent=[tmin_tmax[0]*1000, tmin_tmax[1]*1000, tfr_args["freqs"][0], tfr_args["freqs"][-1]], 
@@ -427,7 +437,7 @@ def get_tfr_decomposition(
         baseline_correction, 
         baseline_correction_method, 
         tmin_tmax,
-        threshold_GC
+        threshold_GC=None
         ):
     latency_matched = False
     slowGC = False
@@ -633,7 +643,7 @@ def meta_function_tfr_intra_group(
                 sub_num = 1
 
             threshold_GC = threshold_gc_dict.get(sub) if any(x in coi for x in ['slowGC', 'fastGC']) else None
-            print(f"Processing subject {sub} for condition {coi} with threshold_GC = {threshold_GC}")
+            # print(f"Processing subject {sub} for condition {coi} with threshold_GC = {threshold_GC}")
             mean_power, times, freqs, mean_rt, mean_ssd = get_tfr_decomposition(
                 epochs = epochs, 
                 cond_of_interest = coi, 
@@ -772,6 +782,7 @@ def meta_function_tfr_inter_groups(
         baseline_correction_method = 'group_average', # method for baseline correction (e.g. 'group_average' or 'single_trial')
         saving_path = "C:\\Users\\Juliette\\Research\\Projects\\analysis_mSST\\results", # path to save the figures
         save_as = 'png', # format to save the figures (e.g. 'png', 'pdf')
+        threshold_gc_dict = None # dictionary containing the GC threshold for each subject (only needed if using slowGC or fastGC conditions
 ):
     """
     epochs_cond can be a list of one condition (e.g. ['GO_successful_square']) or a 
@@ -785,7 +796,7 @@ def meta_function_tfr_inter_groups(
     """
     
     # Validate epochs_cond format
-    assert all(epochs_cond[i].split('_')[0] in ['lmGO', 'GO', 'GS', 'GF', 'GC'] for i in range(len(epochs_cond))), "Condition should start with 'lmGO', 'GO', 'GF', 'GC' or 'GS'" 
+    assert all(epochs_cond[i].split('_')[0] in ['lmGO', 'GO', 'GS', 'GF', 'GC', 'slowGC', 'fastGC'] for i in range(len(epochs_cond))), "Condition should start with 'lmGO', 'GO', 'GF', 'GC', 'slowGC' or 'fastGC'" 
 
     if plot_contrast_cond_group:
         if len(epochs_cond) == 2:
@@ -819,6 +830,7 @@ def meta_function_tfr_inter_groups(
                     all_percentage_change = []
                     sub_num = 1
 
+                threshold_GC = threshold_gc_dict.get(sub) if any(x in coi for x in ['slowGC', 'fastGC']) else None
                 mean_power, times, freqs, mean_rt, mean_ssd = get_tfr_decomposition(
                     epochs = epochs, 
                     cond_of_interest = coi, 
@@ -826,7 +838,8 @@ def meta_function_tfr_inter_groups(
                     tfr_args = tfr_args, 
                     baseline_correction= baseline_correction,
                     baseline_correction_method= baseline_correction_method,
-                    tmin_tmax = tmin_tmax
+                    tmin_tmax = tmin_tmax,
+                    threshold_GC = threshold_GC
                 )
                 all_percentage_change.append(mean_power)
                 subs_included.append(sub)
@@ -852,7 +865,8 @@ def meta_function_tfr_inter_groups(
                             sub = sub,
                             mean_rt_all = mean_rt,
                             mean_ssd_all = mean_ssd,
-                            saving_path = saving_path
+                            saving_path = saving_path,
+                            save_as = save_as
                             )
 
             if not single_sub:
@@ -878,7 +892,8 @@ def meta_function_tfr_inter_groups(
                         sub = None,
                         mean_rt_all = mean_rt_all,
                         mean_ssd_all = mean_ssd_all,
-                        saving_path = saving_path
+                        saving_path = saving_path,
+                        save_as = save_as
                         )     
 
                 tfr_dict[sub_group][coi] = {
@@ -916,7 +931,8 @@ def meta_function_tfr_inter_groups(
                 baseline_correction = baseline_correction,
                 baseline_correction_method = baseline_correction_method,
                 sub_num = sub_num,
-                saving_path = saving_path            
+                saving_path = saving_path,
+                save_as = save_as
                 )
 
     # If needed, add statistical tests between conditions and add to the plot.
@@ -951,7 +967,8 @@ def meta_function_tfr_inter_groups(
             baseline_correction = baseline_correction,
             baseline_correction_method = baseline_correction_method,
             sub_num = sub_num,
-            saving_path = saving_path            
+            saving_path = saving_path,
+            save_as = save_as            
             )    
         
     return tfr_dict
