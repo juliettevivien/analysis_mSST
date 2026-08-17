@@ -70,6 +70,7 @@ def meta_function_tfr_intra_group(
                 sub_num = 1
 
             threshold_GC = threshold_gc_dict.get(sub) if any(x in coi for x in ['slowGC', 'fastGC']) else None
+            print(f"Processing sub {sub}")
             mean_power, times, freqs, mean_rt, mean_ssd = get_tfr_decomposition(
                 epochs = epochs, 
                 cond_of_interest = coi, 
@@ -409,7 +410,8 @@ def get_tfr_decomposition(
         baseline_correction, 
         baseline_correction_method, 
         tmin_tmax,
-        threshold_GC=None
+        threshold_GC=None,
+        handle_bads: str = 'ignore' # options: 'ignore', 'drop'
         ):
     latency_matched = False
     slowGC = False
@@ -476,6 +478,15 @@ def get_tfr_decomposition(
     mean_ssd = np.nanmean(ssd) if ssd is not None else None
 
     # Select only desired channels
+    # check if channels are bad and handle them according to the specified strategy
+    if handle_bads == 'drop':  # THIS STRATEGY IS NOT READY YET, DON'T USE IT FOR NOW
+        print('Warning: Dropping bad channels. This strategy is not fully implemented yet.')
+        ch_names = [ch for ch in ch_names if ch not in epochs.info['bads']]
+    elif handle_bads == 'ignore':
+        print(f'Ignoring bad channels. They will be included in the analysis even if the following channels were initially labeled as bads: {data.info["bads"]}')
+        # remove "bads" annotation to ignore that they are bad channels
+        data.info['bads'] = []
+
     epochs = data.copy().pick(ch_names)
 
     # Compute TFR
