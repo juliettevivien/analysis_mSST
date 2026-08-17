@@ -18,7 +18,7 @@ EEG:
 EEG_0a_crop_into_blocks.ipynb  # Separate full session into blocks
 EEG_0b_preprocess_blocks.ipynb  # Preprocess each block separately
 EEG_0c_concat_blocks_epoch_preproc.ipynb  # Epoch per block, concatenate and remove bad epochs
-
+EEG_1_check_preprocessed_eeg_epochs.ipynb  # Plot average TFR by trial type and by sub, just to check overall quality/signal
 
 BEHAV:
 
