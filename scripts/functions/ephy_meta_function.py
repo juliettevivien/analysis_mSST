@@ -7,6 +7,7 @@ import mne
 import os
 
 from functions.analysis import identify_significant_clusters
+from mne.stats import permutation_cluster_1samp_test
 
 
 def meta_function_tfr_intra_group(
@@ -972,3 +973,1356 @@ def plot_tfr_result_contrast_groups(
             ax.axvline(x=avg_ssd2, color='k', linestyle='--', label=f'Mean SSD {groups[1]}')
     
     fig.savefig(os.path.join(saving_path, f"{epochs_cond}_{contrast}_{roi}_nSub{str(sub_num)}.{save_as}"))
+
+
+
+def stn_erp_change_diff_cond(
+        sub_dict_epochs,
+        dbs_status,
+        epoch_cond1,
+        epoch_cond2,
+        condition,
+        condition_color_dict,
+        saving_path,
+        alpha=0.05,
+        n_permutations=1000,
+        save_as='png'
+):
+    """
+    Compare two conditions in STN intracranial EEG using a
+    paired/repeated-measures cluster permutation test.
+
+    Statistics
+    ----------
+    For each channel:
+        difference = condition 1 - condition 2
+
+    A one-sample cluster permutation test is then performed
+    on these within-subject differences against zero.
+
+    Reaction times
+    --------------
+    Mean RT is calculated separately for each condition within
+    each subject, using the metadata field:
+
+        'key_resp_experiment.rt'
+
+    The reported group RT is the mean of the subject-level
+    mean RTs, so subjects are weighted equally regardless of
+    their number of trials.
+
+    Parameters
+    ----------
+    sub_dict_epochs : dict
+        Dictionary with subject IDs as keys and MNE Epochs as values.
+
+    dbs_status : str
+        String used to select the relevant subjects.
+
+    epoch_cond1 : str
+        First condition, e.g. 'GO_successful'.
+
+    epoch_cond2 : str
+        Second condition, e.g. 'GF_successful'.
+
+    condition : str
+        Label used for the figure title, e.g. 'DBS ON'.
+
+    condition_color_dict : dict
+        Dictionary mapping condition names to plotting colors.
+
+    alpha : float
+        Significance threshold.
+
+    n_permutations : int
+        Number of permutations.
+
+    Returns
+    -------
+    avg_cond1 : mne.Evoked
+        Grand-average ERP for condition 1.
+
+    avg_cond2 : mne.Evoked
+        Grand-average ERP for condition 2.
+
+    cluster_results : list
+        List containing (clusters, p_values) for each channel.
+
+    subjects_included : list
+        Subjects included in the analysis.
+
+    mean_rt_cond1 : float
+        Mean subject-level RT for condition 1, in seconds.
+
+    mean_rt_cond2 : float
+        Mean subject-level RT for condition 2, in seconds.
+
+    rt_by_subject : dict
+        Subject-level mean RTs for both conditions.
+    """
+
+    # =========================================================
+    # PARAMETERS
+    # =========================================================
+
+    tmin, tmax = -0.5, 1.5
+    sfreq = 250
+
+    common_times = np.arange(
+        tmin,
+        tmax + 1 / sfreq,
+        1 / sfreq
+    )
+
+    all_cond1 = []
+    all_cond2 = []
+    subs_included = []
+
+    # Store subject-level RTs
+    rt_cond1_subjects = []
+    rt_cond2_subjects = []
+
+    rt_by_subject = {}
+
+    latency_matched1 = False
+    latency_matched2 = False
+
+    # =========================================================
+    # COLLECT DATA
+    # =========================================================
+
+    for subject, epochs in sub_dict_epochs.items():
+
+        if dbs_status not in subject:
+            continue
+
+        # -----------------------------------------------------
+        # Parse condition 1
+        # -----------------------------------------------------
+
+        epoch_type1, outcome_str1 = epoch_cond1.split('_')
+        if epoch_type1 == 'lmGO':
+            latency_matched1 = True
+            epoch_type1 = 'GO'
+
+        outcome1 = (
+            1.0 if outcome_str1 == "successful"
+            else 0.0
+        )
+
+        # -----------------------------------------------------
+        # Parse condition 2
+        # -----------------------------------------------------
+
+        epoch_type2, outcome_str2 = epoch_cond2.split('_')
+        if epoch_type2 == 'lmGO':
+            latency_matched2 = True
+            epoch_type2 = 'GO'
+
+        outcome2 = (
+            1.0 if outcome_str2 == "successful"
+            else 0.0
+        )
+
+        # -----------------------------------------------------
+        # Select condition 1 trials
+        # -----------------------------------------------------
+
+        type_mask1 = (
+            epochs.metadata["event"] == epoch_type1
+        )
+
+        outcome_mask1 = (
+            epochs.metadata["key_resp_experiment.corr"]
+            == outcome1
+        )
+
+        data1 = epochs[
+            type_mask1 & outcome_mask1
+        ]
+
+        if latency_matched1:
+            rt = np.asarray(data1.metadata['key_resp_experiment.rt'])
+            threshold = np.percentile(rt, 50)
+            slow_mask = rt >= threshold
+            data1 = data1[slow_mask] 
+
+        # -----------------------------------------------------
+        # Select condition 2 trials
+        # -----------------------------------------------------
+
+        type_mask2 = (
+            epochs.metadata["event"] == epoch_type2
+        )
+
+        outcome_mask2 = (
+            epochs.metadata["key_resp_experiment.corr"]
+            == outcome2
+        )
+
+        data2 = epochs[
+            type_mask2 & outcome_mask2
+        ]
+
+        if latency_matched2:
+            rt = np.asarray(data2.metadata['key_resp_experiment.rt'])
+            threshold = np.percentile(rt, 50)
+            slow_mask = rt >= threshold
+            data2 = data2[slow_mask] 
+
+        # -----------------------------------------------------
+        # Make sure both conditions exist
+        # -----------------------------------------------------
+
+        if len(data1) == 0 or len(data2) == 0:
+
+            print(
+                f"Skipping {subject}: "
+                f"{epoch_cond1} = {len(data1)} trials, "
+                f"{epoch_cond2} = {len(data2)} trials"
+            )
+
+            continue
+
+        # -----------------------------------------------------
+        # Make sure channel structure is identical
+        # -----------------------------------------------------
+
+        if data1.ch_names != data2.ch_names:
+
+            raise RuntimeError(
+                f"Channel mismatch for {subject}.\n"
+                f"{epoch_cond1}: {data1.ch_names}\n"
+                f"{epoch_cond2}: {data2.ch_names}"
+            )
+
+        # =====================================================
+        # REACTION TIMES
+        # =====================================================
+
+        # Extract RTs from metadata
+        rt1 = data1.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        rt2 = data2.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        # Remove missing RTs (NaN)
+        rt1 = rt1[~np.isnan(rt1)]
+        rt2 = rt2[~np.isnan(rt2)]
+
+        # Subject-level mean RT
+        mean_rt1_subject = (
+            np.mean(rt1)
+            if len(rt1) > 0
+            else np.nan
+        )
+
+        mean_rt2_subject = (
+            np.mean(rt2)
+            if len(rt2) > 0
+            else np.nan
+        )
+
+        rt_cond1_subjects.append(
+            mean_rt1_subject
+        )
+
+        rt_cond2_subjects.append(
+            mean_rt2_subject
+        )
+
+        # Store subject-level RTs
+        rt_by_subject[subject] = {
+            epoch_cond1: mean_rt1_subject,
+            epoch_cond2: mean_rt2_subject
+        }
+
+        # =====================================================
+        # CROP
+        # =====================================================
+
+        cropped_data1 = data1.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        cropped_data2 = data2.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        # =====================================================
+        # BASELINE CORRECTION
+        # =====================================================
+
+        crunched_data1 = (
+            cropped_data1
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+        crunched_data2 = (
+            cropped_data2
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+
+        # =====================================================
+        # AVERAGE WITHIN SUBJECT
+        # =====================================================
+
+        averaged_data1 = crunched_data1.average()
+        averaged_data2 = crunched_data2.average()
+
+        # print("Single-trial range:")
+        # print(
+        #     np.min(crunched_data1.get_data()),
+        #     np.max(crunched_data1.get_data())
+        # )
+
+        # print("\nERP range:")
+        # print(
+        #     np.min(averaged_data1.data),
+        #     np.max(averaged_data1.data)
+        # )
+        # =====================================================
+        # INTERPOLATE TO COMMON TIME GRID
+        # =====================================================
+
+        new_data1 = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data1.times,
+                ch
+            )
+            for ch in averaged_data1.data
+        ])
+
+        new_data2 = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data2.times,
+                ch
+            )
+            for ch in averaged_data2.data
+        ])
+
+        # =====================================================
+        # CREATE EVOKED OBJECTS
+        # =====================================================
+
+        evoked_interp1 = mne.EvokedArray(
+            new_data1,
+            averaged_data1.info.copy(),
+            tmin=common_times[0]
+        )
+
+        evoked_interp2 = mne.EvokedArray(
+            new_data2,
+            averaged_data2.info.copy(),
+            tmin=common_times[0]
+        )
+
+        # =====================================================
+        # STORE
+        # =====================================================
+
+        all_cond1.append(evoked_interp1)
+        all_cond2.append(evoked_interp2)
+
+        subs_included.append(subject)
+
+
+    # =========================================================
+    # CHECK SUBJECTS
+    # =========================================================
+
+    if len(all_cond1) == 0:
+
+        raise RuntimeError(
+            "No subjects were included. "
+            "Check dbs_status and condition names."
+        )
+
+    print(
+        f"\nNumber of subjects included: "
+        f"{len(subs_included)}"
+    )
+
+    print(
+        "Subjects:",
+        subs_included
+    )
+
+
+    # =========================================================
+    # GROUP-LEVEL REACTION TIMES
+    # =========================================================
+
+    mean_rt_cond1 = np.nanmean(
+        rt_cond1_subjects
+    )
+
+    mean_rt_cond2 = np.nanmean(
+        rt_cond2_subjects
+    )
+
+    # Convert to milliseconds for display
+    mean_rt_cond1_ms = (
+        mean_rt_cond1 * 1000
+    )
+
+    mean_rt_cond2_ms = (
+        mean_rt_cond2 * 1000
+    )
+
+    print("\nMean reaction times:")
+    print(
+        f"{epoch_cond1}: "
+        f"{mean_rt_cond1_ms:.1f} ms"
+    )
+
+    print(
+        f"{epoch_cond2}: "
+        f"{mean_rt_cond2_ms:.1f} ms"
+    )
+
+
+    # =========================================================
+    # CONVERT ERP DATA TO ARRAYS
+    # =========================================================
+
+    X1 = np.array([
+        evk.data
+        for evk in all_cond1
+    ])
+
+    X2 = np.array([
+        evk.data
+        for evk in all_cond2
+    ])
+
+    # Shape:
+    #
+    # subjects × channels × time
+
+    print("\nData shape:")
+    print("Condition 1:", X1.shape)
+    print("Condition 2:", X2.shape)
+
+    n_subjects = X1.shape[0]
+    n_channels = X1.shape[1]
+
+    times = common_times
+
+
+    # =========================================================
+    # GRAND AVERAGES
+    # =========================================================
+
+    avg_cond1 = mne.grand_average(
+        all_cond1
+    )
+
+    avg_cond2 = mne.grand_average(
+        all_cond2
+    )
+
+
+    # =========================================================
+    # PAIRED / REPEATED-MEASURES CLUSTER TEST
+    # =========================================================
+
+    cluster_results = []
+
+    for ch in range(n_channels):
+
+        # -----------------------------------------------------
+        # Within-subject difference
+        #
+        # condition 1 - condition 2
+        # -----------------------------------------------------
+
+        difference = (
+            X1[:, ch, :]
+            -
+            X2[:, ch, :]
+        )
+
+        # -----------------------------------------------------
+        # One-sample cluster permutation test
+        # -----------------------------------------------------
+
+        T_obs, clusters, p_values, H0 = (
+            permutation_cluster_1samp_test(
+                difference,
+                n_permutations=n_permutations,
+                threshold=None,
+                tail=0,
+                out_type='indices',
+                seed=42
+            )
+        )
+
+        cluster_results.append(
+            (
+                clusters,
+                p_values
+            )
+        )
+
+
+    # =========================================================
+    # PLOT INTRACRANIAL ERPs
+    # =========================================================
+
+    ch_names = avg_cond1.ch_names
+
+    fig, axes = plt.subplots(
+        n_channels,
+        1,
+        figsize=(
+            10,
+            max(3, 2.5 * n_channels)
+        ),
+        sharex=True,
+        squeeze=False
+    )
+
+    axes = axes[:, 0]
+
+    color1 = condition_color_dict[
+        epoch_cond1
+    ]
+
+    color2 = condition_color_dict[
+        epoch_cond2
+    ]
+
+
+    # =========================================================
+    # PLOT EACH CHANNEL
+    # =========================================================
+
+    for ch_idx, ax in enumerate(axes):
+
+        # -----------------------------------------------------
+        # ERP condition 1
+        # -----------------------------------------------------
+
+        ax.plot(
+            times,
+            avg_cond1.data[ch_idx],
+            color=color1,
+            linewidth=1.5,
+            label=(
+                f"{epoch_cond1} "
+                f"(RT = {mean_rt_cond1_ms:.0f} ms)"
+            )
+        )
+        ax.axvline(mean_rt_cond1, color=color1, linestyle=':', linewidth=1.0)
+
+        # -----------------------------------------------------
+        # ERP condition 2
+        # -----------------------------------------------------
+
+        ax.plot(
+            times,
+            avg_cond2.data[ch_idx],
+            color=color2,
+            linewidth=1.5,
+            label=(
+                f"{epoch_cond2} "
+                f"(RT = {mean_rt_cond2_ms:.0f} ms)"
+            )
+        )
+        ax.axvline(mean_rt_cond2, color=color2, linestyle=':', linewidth=1.0)
+
+        # =====================================================
+        # SIGNIFICANT CLUSTERS
+        # =====================================================
+
+        clusters, p_values = cluster_results[ch_idx]
+
+        for cluster, p_val in zip(
+            clusters,
+            p_values
+        ):
+
+            if p_val < alpha:
+
+                # cluster is a tuple containing
+                # the indices along the tested dimension
+
+                cluster_times = (
+                    times[cluster[0]]
+                )
+
+                print(
+                    f"Significant cluster | "
+                    f"{ch_names[ch_idx]} | "
+                    f"p = {p_val:.4f} | "
+                    f"{cluster_times[0]:.3f}–"
+                    f"{cluster_times[-1]:.3f} s"
+                )
+
+                # -------------------------------------------------
+                # Shade significant time period
+                # -------------------------------------------------
+
+                ax.axvspan(
+                    cluster_times[0],
+                    cluster_times[-1],
+                    color='red',
+                    alpha=0.20
+                )
+
+
+        # =====================================================
+        # FORMATTING
+        # =====================================================
+
+        ax.axvline(
+            0,
+            color='black',
+            linestyle='--',
+            linewidth=0.8
+        )
+
+        ax.axhline(
+            0,
+            color='black',
+            linewidth=0.5
+        )
+
+        ax.set_ylabel(
+            ch_names[ch_idx]
+        )
+
+        ax.grid(
+            alpha=0.2
+        )
+
+
+    # =========================================================
+    # FIGURE LABELS
+    # =========================================================
+
+    axes[-1].set_xlabel(
+        "Time (s)"
+    )
+
+    axes[0].legend(
+        loc='upper right'
+    )
+
+    fig.suptitle(
+        f"{condition} — STN intracranial ERP",
+        fontsize=14
+    )
+
+    fig.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            saving_path,
+            f"{condition}_STN_ERP_{epoch_cond1}_vs_{epoch_cond2}.{save_as}"
+        ),
+        dpi=300
+    )
+    plt.show()
+
+
+    # =========================================================
+    # RETURN
+    # =========================================================
+
+    return (
+        avg_cond1,
+        avg_cond2,
+        cluster_results,
+        subs_included,
+        # mean_rt_cond1,
+        # mean_rt_cond2,
+        # rt_by_subject
+    )
+
+
+
+def stn_erp_change_diff_on_off(
+        sub_dict_epochs,
+        epoch_cond,
+        condition_color_dict,
+        saving_path,
+        alpha=0.05,
+        n_permutations=1000,
+        save_as='png'
+):
+    """
+    Compare the same trial type between DBS ON and DBS OFF
+    using a paired/repeated-measures cluster permutation test.
+
+    Example
+    -------
+    epoch_cond = 'GO_successful'
+
+    The analysis then compares:
+
+        GO_successful DBS ON
+        vs.
+        GO_successful DBS OFF
+
+    Statistics
+    ----------
+    For each channel:
+
+        difference = DBS ON - DBS OFF
+
+    A one-sample cluster permutation test is then performed
+    on these within-subject differences against zero.
+
+    Reaction times
+    --------------
+    Mean RT is calculated separately for DBS ON and DBS OFF
+    within each subject, using:
+
+        'key_resp_experiment.rt'
+
+    The reported group RT is the mean of the subject-level
+    mean RTs, so subjects are weighted equally.
+
+    Parameters
+    ----------
+    sub_dict_epochs : dict
+        Dictionary with subject/session IDs as keys and MNE
+        Epochs as values.
+
+        Keys must contain either 'DBS ON' or 'DBS OFF'.
+
+        Example:
+            'sub01 DBS ON'
+            'sub01 DBS OFF'
+
+    epoch_cond : str
+        Trial type to analyse, e.g. 'GO_successful'.
+
+    condition_color_dict : dict
+        Dictionary mapping 'DBS ON' and 'DBS OFF' to plotting colors.
+
+        Example:
+            {
+                'DBS ON': 'red',
+                'DBS OFF': 'blue'
+            }
+
+    saving_path : str
+        Directory where the figure is saved.
+
+    alpha : float
+        Significance threshold.
+
+    n_permutations : int
+        Number of permutations.
+
+    save_as : str
+        Figure format, e.g. 'png' or 'pdf'.
+
+    Returns
+    -------
+    avg_on : mne.Evoked
+        Grand-average ERP for DBS ON.
+
+    avg_off : mne.Evoked
+        Grand-average ERP for DBS OFF.
+
+    cluster_results : list
+        List containing (clusters, p_values) for each channel.
+
+    subjects_included : list
+        Subjects included in the paired analysis.
+
+    mean_rt_on : float
+        Mean subject-level RT for DBS ON, in seconds.
+
+    mean_rt_off : float
+        Mean subject-level RT for DBS OFF, in seconds.
+
+    rt_by_subject : dict
+        Subject-level mean RTs for DBS ON and DBS OFF.
+    """
+
+    # =========================================================
+    # PARAMETERS
+    # =========================================================
+
+    tmin, tmax = -0.5, 1.5
+    sfreq = 250
+
+    common_times = np.arange(
+        tmin,
+        tmax + 1 / sfreq,
+        1 / sfreq
+    )
+
+    # Store one ERP per subject/session
+    on_by_subject = {}
+    off_by_subject = {}
+
+    # Store subject-level RTs
+    rt_on_by_subject = {}
+    rt_off_by_subject = {}
+
+    latency_matched = False
+
+    # =========================================================
+    # PARSE TRIAL CONDITION
+    # =========================================================
+
+    epoch_type, outcome_str = epoch_cond.split('_')
+
+    if epoch_type == 'lmGO':
+        latency_matched = True
+        epoch_type = 'GO'
+
+    outcome = (
+        1.0 if outcome_str == 'successful'
+        else 0.0
+    )
+
+    # =========================================================
+    # COLLECT DATA
+    # =========================================================
+
+    for subject_session, epochs in sub_dict_epochs.items():
+
+        # -----------------------------------------------------
+        # Determine DBS status
+        # -----------------------------------------------------
+
+        if 'DBS ON' in subject_session:
+            dbs_status = 'DBS ON'
+
+        elif 'DBS OFF' in subject_session:
+            dbs_status = 'DBS OFF'
+
+        else:
+            continue
+
+        # -----------------------------------------------------
+        # Determine subject ID
+        #
+        # Removes the DBS status from the dictionary key.
+        #
+        # Example:
+        #   'sub01 DBS ON'  -> 'sub01'
+        #   'sub01 DBS OFF' -> 'sub01'
+        # -----------------------------------------------------
+
+        subject = (
+            subject_session
+            .replace('DBS ON', '')
+            .replace('DBS OFF', '')
+            .strip()
+        )
+
+        # -----------------------------------------------------
+        # Select desired trial type
+        # -----------------------------------------------------
+
+        type_mask = (
+            epochs.metadata["event"] == epoch_type
+        )
+
+        outcome_mask = (
+            epochs.metadata["key_resp_experiment.corr"]
+            == outcome
+        )
+
+        data = epochs[
+            type_mask & outcome_mask
+        ]
+
+        # -----------------------------------------------------
+        # Optional latency matching
+        # -----------------------------------------------------
+
+        if latency_matched:
+
+            if len(data) == 0:
+                continue
+
+            rt = np.asarray(
+                data.metadata["key_resp_experiment.rt"]
+            )
+
+            threshold = np.percentile(rt, 50)
+
+            slow_mask = rt >= threshold
+
+            data = data[slow_mask]
+
+        # -----------------------------------------------------
+        # Check that trials exist
+        # -----------------------------------------------------
+
+        if len(data) == 0:
+
+            print(
+                f"Skipping {subject_session}: "
+                f"no {epoch_cond} trials"
+            )
+
+            continue
+
+        # =====================================================
+        # REACTION TIME
+        # =====================================================
+
+        rt = data.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        # Remove NaNs
+        rt = rt[~np.isnan(rt)]
+
+        mean_rt_subject = (
+            np.mean(rt)
+            if len(rt) > 0
+            else np.nan
+        )
+
+        if dbs_status == 'DBS ON':
+            rt_on_by_subject[subject] = mean_rt_subject
+
+        else:
+            rt_off_by_subject[subject] = mean_rt_subject
+
+        # =====================================================
+        # CROP
+        # =====================================================
+
+        cropped_data = data.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        # =====================================================
+        # BASELINE CORRECTION
+        # =====================================================
+
+        crunched_data = (
+            cropped_data
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+        # =====================================================
+        # AVERAGE WITHIN SUBJECT
+        # =====================================================
+
+        averaged_data = crunched_data.average()
+
+        # =====================================================
+        # INTERPOLATE TO COMMON TIME GRID
+        # =====================================================
+
+        new_data = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data.times,
+                ch
+            )
+            for ch in averaged_data.data
+        ])
+
+        # =====================================================
+        # CREATE EVOKED OBJECT
+        # =====================================================
+
+        evoked_interp = mne.EvokedArray(
+            new_data,
+            averaged_data.info.copy(),
+            tmin=common_times[0]
+        )
+
+        # =====================================================
+        # STORE BY SUBJECT AND DBS STATUS
+        # =====================================================
+
+        if dbs_status == 'DBS ON':
+            on_by_subject[subject] = evoked_interp
+
+        else:
+            off_by_subject[subject] = evoked_interp
+
+    # =========================================================
+    # FIND SUBJECTS WITH BOTH DBS ON AND DBS OFF
+    # =========================================================
+
+    subjects_included = sorted(
+        set(on_by_subject.keys())
+        &
+        set(off_by_subject.keys())
+    )
+
+    if len(subjects_included) == 0:
+
+        raise RuntimeError(
+            "No subjects have both DBS ON and DBS OFF data "
+            f"for {epoch_cond}."
+        )
+
+    print(
+        f"\nNumber of paired subjects included: "
+        f"{len(subjects_included)}"
+    )
+
+    print(
+        "Subjects:",
+        subjects_included
+    )
+
+    # =========================================================
+    # CHECK CHANNEL STRUCTURE
+    # =========================================================
+
+    for subject in subjects_included:
+
+        if (
+            on_by_subject[subject].ch_names
+            != off_by_subject[subject].ch_names
+        ):
+
+            raise RuntimeError(
+                f"Channel mismatch for {subject}.\n"
+                f"DBS ON: "
+                f"{on_by_subject[subject].ch_names}\n"
+                f"DBS OFF: "
+                f"{off_by_subject[subject].ch_names}"
+            )
+
+    # =========================================================
+    # CREATE PAIRED ARRAYS
+    # =========================================================
+
+    all_cond_on = [
+        on_by_subject[sub]
+        for sub in subjects_included
+    ]
+
+    all_cond_off = [
+        off_by_subject[sub]
+        for sub in subjects_included
+    ]
+
+    # =========================================================
+    # GROUP-LEVEL REACTION TIMES
+    # =========================================================
+
+    mean_rt_on = np.nanmean([
+        rt_on_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    mean_rt_off = np.nanmean([
+        rt_off_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    mean_rt_on_ms = mean_rt_on * 1000
+    mean_rt_off_ms = mean_rt_off * 1000
+
+    print("\nMean reaction times:")
+
+    print(
+        f"{epoch_cond} — DBS ON: "
+        f"{mean_rt_on_ms:.1f} ms"
+    )
+
+    print(
+        f"{epoch_cond} — DBS OFF: "
+        f"{mean_rt_off_ms:.1f} ms"
+    )
+
+    # =========================================================
+    # STORE RTs BY SUBJECT
+    # =========================================================
+
+    rt_by_subject = {}
+
+    for subject in subjects_included:
+
+        rt_by_subject[subject] = {
+            'DBS ON': rt_on_by_subject[subject],
+            'DBS OFF': rt_off_by_subject[subject]
+        }
+
+    # =========================================================
+    # CONVERT ERP DATA TO ARRAYS
+    # =========================================================
+
+    X_on = np.array([
+        evk.data
+        for evk in all_cond_on
+    ])
+
+    X_off = np.array([
+        evk.data
+        for evk in all_cond_off
+    ])
+
+    # Shape:
+    # subjects × channels × time
+
+    print("\nData shape:")
+    print("DBS ON:", X_on.shape)
+    print("DBS OFF:", X_off.shape)
+
+    n_subjects = X_on.shape[0]
+    n_channels = X_on.shape[1]
+
+    times = common_times
+
+    # =========================================================
+    # GRAND AVERAGES
+    # =========================================================
+
+    avg_on = mne.grand_average(
+        all_cond_on
+    )
+
+    avg_off = mne.grand_average(
+        all_cond_off
+    )
+
+    # =========================================================
+    # PAIRED / REPEATED-MEASURES CLUSTER TEST
+    # =========================================================
+
+    cluster_results = []
+
+    for ch in range(n_channels):
+
+        # -----------------------------------------------------
+        # Within-subject difference
+        #
+        # DBS ON - DBS OFF
+        # -----------------------------------------------------
+
+        difference = (
+            X_on[:, ch, :]
+            -
+            X_off[:, ch, :]
+        )
+
+        # -----------------------------------------------------
+        # One-sample cluster permutation test
+        # -----------------------------------------------------
+
+        T_obs, clusters, p_values, H0 = (
+            permutation_cluster_1samp_test(
+                difference,
+                n_permutations=n_permutations,
+                threshold=None,
+                tail=0,
+                out_type='indices',
+                seed=42
+            )
+        )
+
+        cluster_results.append(
+            (
+                clusters,
+                p_values
+            )
+        )
+
+    # =========================================================
+    # PLOT INTRACRANIAL ERPs
+    # =========================================================
+
+    ch_names = avg_on.ch_names
+
+    fig, axes = plt.subplots(
+        n_channels,
+        1,
+        figsize=(
+            10,
+            max(3, 2.5 * n_channels)
+        ),
+        sharex=True,
+        squeeze=False
+    )
+
+    axes = axes[:, 0]
+
+    color_on = condition_color_dict['DBS ON']
+    color_off = condition_color_dict['DBS OFF']
+
+    # =========================================================
+    # PLOT EACH CHANNEL
+    # =========================================================
+
+    for ch_idx, ax in enumerate(axes):
+
+        # -----------------------------------------------------
+        # DBS ON
+        # -----------------------------------------------------
+
+        ax.plot(
+            times,
+            avg_on.data[ch_idx],
+            color=color_on,
+            linewidth=1.5,
+            label=(
+                f"{epoch_cond} — DBS ON "
+                f"(RT = {mean_rt_on_ms:.0f} ms)"
+            )
+        )
+
+        ax.axvline(
+            mean_rt_on,
+            color=color_on,
+            linestyle=':',
+            linewidth=1.0
+        )
+
+        # -----------------------------------------------------
+        # DBS OFF
+        # -----------------------------------------------------
+
+        ax.plot(
+            times,
+            avg_off.data[ch_idx],
+            color=color_off,
+            linewidth=1.5,
+            label=(
+                f"{epoch_cond} — DBS OFF "
+                f"(RT = {mean_rt_off_ms:.0f} ms)"
+            )
+        )
+
+        ax.axvline(
+            mean_rt_off,
+            color=color_off,
+            linestyle=':',
+            linewidth=1.0
+        )
+
+        # =====================================================
+        # SIGNIFICANT CLUSTERS
+        # =====================================================
+
+        clusters, p_values = cluster_results[ch_idx]
+
+        for cluster, p_val in zip(
+            clusters,
+            p_values
+        ):
+
+            if p_val < alpha:
+
+                # Cluster is a tuple containing
+                # the indices along the tested dimension
+
+                cluster_times = (
+                    times[cluster[0]]
+                )
+
+                print(
+                    f"Significant cluster | "
+                    f"{ch_names[ch_idx]} | "
+                    f"p = {p_val:.4f} | "
+                    f"{cluster_times[0]:.3f}–"
+                    f"{cluster_times[-1]:.3f} s"
+                )
+
+                # -------------------------------------------------
+                # Shade significant time period
+                # -------------------------------------------------
+
+                ax.axvspan(
+                    cluster_times[0],
+                    cluster_times[-1],
+                    color='red',
+                    alpha=0.20
+                )
+
+        # =====================================================
+        # FORMATTING
+        # =====================================================
+
+        ax.axvline(
+            0,
+            color='black',
+            linestyle='--',
+            linewidth=0.8
+        )
+
+        ax.axhline(
+            0,
+            color='black',
+            linewidth=0.5
+        )
+
+        ax.set_ylabel(
+            ch_names[ch_idx]
+        )
+
+        ax.grid(
+            alpha=0.2
+        )
+
+    # =========================================================
+    # FIGURE LABELS
+    # =========================================================
+
+    axes[-1].set_xlabel(
+        "Time (s)"
+    )
+
+    axes[0].legend(
+        loc='upper right'
+    )
+
+    fig.suptitle(
+        f"{epoch_cond} — DBS ON vs DBS OFF — "
+        f"STN intracranial ERP",
+        fontsize=14
+    )
+
+    fig.tight_layout()
+
+    # =========================================================
+    # SAVE
+    # =========================================================
+
+    plt.savefig(
+        os.path.join(
+            saving_path,
+            f"DBS_ON_vs_OFF_STN_ERP_"
+            f"{epoch_cond}.{save_as}"
+        ),
+        dpi=300
+    )
+
+    plt.show()
+
+    # =========================================================
+    # RETURN
+    # =========================================================
+
+    return (
+        avg_on,
+        avg_off,
+        cluster_results,
+        subjects_included,
+        mean_rt_on,
+        mean_rt_off,
+        rt_by_subject
+    )
+
