@@ -20,6 +20,7 @@ EEG_0b_preprocess_blocks.ipynb  # Preprocess each block separately
 EEG_0c_concat_blocks_epoch_preproc.ipynb  # Epoch per block, concatenate and remove bad epochs
 EEG_1_check_preprocessed_eeg_epochs.ipynb  # Plot average TFR by trial type and by sub, just to check overall quality/signal
 EEG_2_epoch_tfr_analysis.ipynb
+EEG_3_epoch_erp_analysis.ipynb
 
 BEHAV:
 
@@ -37,6 +38,7 @@ LFP:
 LFP_0_epoch_preproc.ipynb
 LFP_1_check_preprocessed_lfp_epochs.ipynb
 LFP_2_epochs_tfr_analysis.ipynb
+LFP_3_epochs_erp_analysis.ipynb
 
 OTHER:
 OTHER_reconstruct_behav_from_xdf.ipynb  --> to use when LSL crashed and did not save .csv file for behavior, then reconstruct everything manually using events from .xdf

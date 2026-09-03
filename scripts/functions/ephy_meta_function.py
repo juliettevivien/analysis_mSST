@@ -7,7 +7,7 @@ import mne
 import os
 
 from functions.analysis import identify_significant_clusters
-from mne.stats import permutation_cluster_1samp_test
+from mne.stats import permutation_cluster_1samp_test, permutation_cluster_test
 
 
 def meta_function_tfr_intra_group(
@@ -2326,3 +2326,2374 @@ def stn_erp_change_diff_on_off(
         rt_by_subject
     )
 
+
+
+def eeg_erp_change_diff_cond(
+        sub_dict_epochs,
+        epoch_cond1,
+        epoch_cond2,
+        comparison,
+        condition,
+        ROI,
+        condition_color_dict,
+        saving_path,
+        alpha=0.05,
+        n_permutations=1000,
+        save_as='png'
+):
+    """
+    Compare two conditions in STN intracranial EEG using a
+    paired/repeated-measures cluster permutation test.
+
+    ROI handling
+    ------------
+    ROI should be a list of channel names, e.g.
+
+        ROI = ['O1', 'O2', 'Oz']
+
+    If only one requested channel is present, that channel is used.
+
+    If multiple requested channels are present, their ERP waveforms
+    are averaged to create a single ROI waveform.
+
+    Channels listed in ROI but absent from a subject are ignored.
+
+    Statistics
+    ----------
+    A one-sample cluster permutation test is performed on the
+    within-subject condition difference of the ROI waveform.
+
+    Returns
+    -------
+    avg_cond1 : mne.Evoked
+        Grand-average ERP for condition 1 in the ROI.
+
+    avg_cond2 : mne.Evoked
+        Grand-average ERP for condition 2 in the ROI.
+
+    cluster_results : list
+        List containing (clusters, p_values) for the ROI.
+
+    subjects_included : list
+        Subjects included in the analysis.
+    """
+
+    # =========================================================
+    # PARAMETERS
+    # =========================================================
+
+    tmin, tmax = -0.5, 1.5
+    sfreq = 250
+
+    common_times = np.arange(
+        tmin,
+        tmax + 1 / sfreq,
+        1 / sfreq
+    )
+
+    all_cond1 = []
+    all_cond2 = []
+    subs_included = []
+
+    # Store subject-level RTs
+    rt_cond1_subjects = []
+    rt_cond2_subjects = []
+
+    rt_by_subject = {}
+
+    latency_matched1 = False
+    latency_matched2 = False
+
+    # =========================================================
+    # CHECK ROI
+    # =========================================================
+
+    if isinstance(ROI, str):
+        ROI = [ROI]
+
+    if ROI is None or len(ROI) == 0:
+        raise ValueError("ROI must contain at least one channel name.")
+
+    print(f"\nRequested ROI channels: {ROI}")
+
+    # =========================================================
+    # COLLECT DATA
+    # =========================================================
+
+    for subject, epochs in sub_dict_epochs.items():
+
+        # if condition not in subject:
+        #     continue
+        
+        # only keep subjects of interest:
+        if condition == 'control':
+            if 'DBS' in subject:
+                continue
+        else:
+            if condition not in subject:
+                continue
+
+        # -----------------------------------------------------
+        # Parse condition 1
+        # -----------------------------------------------------
+
+        epoch_type1, outcome_str1 = epoch_cond1.split('_')
+
+        if epoch_type1 == 'lmGO':
+            latency_matched1 = True
+            epoch_type1 = 'GO'
+
+        outcome1 = (
+            1.0 if outcome_str1 == "successful"
+            else 0.0
+        )
+
+        # -----------------------------------------------------
+        # Parse condition 2
+        # -----------------------------------------------------
+
+        epoch_type2, outcome_str2 = epoch_cond2.split('_')
+
+        if epoch_type2 == 'lmGO':
+            latency_matched2 = True
+            epoch_type2 = 'GO'
+
+        outcome2 = (
+            1.0 if outcome_str2 == "successful"
+            else 0.0
+        )
+
+        # -----------------------------------------------------
+        # Select condition 1 trials
+        # -----------------------------------------------------
+
+        type_mask1 = (
+            epochs.metadata["event"] == epoch_type1
+        )
+
+        outcome_mask1 = (
+            epochs.metadata["key_resp_experiment.corr"]
+            == outcome1
+        )
+
+        data1 = epochs[
+            type_mask1 & outcome_mask1
+        ]
+
+        if latency_matched1:
+            rt = np.asarray(
+                data1.metadata['key_resp_experiment.rt']
+            )
+            threshold = np.percentile(rt, 50)
+            slow_mask = rt >= threshold
+            data1 = data1[slow_mask]
+
+        # -----------------------------------------------------
+        # Select condition 2 trials
+        # -----------------------------------------------------
+
+        type_mask2 = (
+            epochs.metadata["event"] == epoch_type2
+        )
+
+        outcome_mask2 = (
+            epochs.metadata["key_resp_experiment.corr"]
+            == outcome2
+        )
+
+        data2 = epochs[
+            type_mask2 & outcome_mask2
+        ]
+
+        if latency_matched2:
+            rt = np.asarray(
+                data2.metadata['key_resp_experiment.rt']
+            )
+            threshold = np.percentile(rt, 50)
+            slow_mask = rt >= threshold
+            data2 = data2[slow_mask]
+
+        # -----------------------------------------------------
+        # Make sure both conditions exist
+        # -----------------------------------------------------
+
+        if len(data1) == 0 or len(data2) == 0:
+
+            print(
+                f"Skipping {subject}: "
+                f"{epoch_cond1} = {len(data1)} trials, "
+                f"{epoch_cond2} = {len(data2)} trials"
+            )
+
+            continue
+
+        # -----------------------------------------------------
+        # Make sure channel structure is identical
+        # -----------------------------------------------------
+
+        if data1.ch_names != data2.ch_names:
+
+            raise RuntimeError(
+                f"Channel mismatch for {subject}.\n"
+                f"{epoch_cond1}: {data1.ch_names}\n"
+                f"{epoch_cond2}: {data2.ch_names}"
+            )
+
+        # -----------------------------------------------------
+        # Check which ROI channels are actually present
+        # -----------------------------------------------------
+
+        available_roi = [
+            ch for ch in ROI
+            if ch in data1.ch_names
+        ]
+
+        if len(available_roi) == 0:
+
+            print(
+                f"Skipping {subject}: none of the requested "
+                f"ROI channels are present.\n"
+                f"Requested ROI: {ROI}\n"
+                f"Available channels: {data1.ch_names}"
+            )
+
+            continue
+
+        print(
+            f"{subject}: using ROI channels = {available_roi}"
+        )
+
+        # =====================================================
+        # REACTION TIMES
+        # =====================================================
+
+        rt1 = data1.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        rt2 = data2.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        # Remove missing RTs
+        rt1 = rt1[~np.isnan(rt1)]
+        rt2 = rt2[~np.isnan(rt2)]
+
+        # Subject-level mean RT
+        mean_rt1_subject = (
+            np.mean(rt1)
+            if len(rt1) > 0
+            else np.nan
+        )
+
+        mean_rt2_subject = (
+            np.mean(rt2)
+            if len(rt2) > 0
+            else np.nan
+        )
+
+        rt_cond1_subjects.append(
+            mean_rt1_subject
+        )
+
+        rt_cond2_subjects.append(
+            mean_rt2_subject
+        )
+
+        rt_by_subject[subject] = {
+            epoch_cond1: mean_rt1_subject,
+            epoch_cond2: mean_rt2_subject
+        }
+
+        # =====================================================
+        # CROP
+        # =====================================================
+
+        cropped_data1 = data1.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        cropped_data2 = data2.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        # =====================================================
+        # BASELINE CORRECTION
+        # =====================================================
+
+        crunched_data1 = (
+            cropped_data1
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+        crunched_data2 = (
+            cropped_data2
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+        # =====================================================
+        # AVERAGE WITHIN SUBJECT
+        # =====================================================
+
+        averaged_data1 = crunched_data1.average()
+        averaged_data2 = crunched_data2.average()
+
+        # =====================================================
+        # SELECT ROI CHANNELS
+        # =====================================================
+
+        roi_indices = [
+            averaged_data1.ch_names.index(ch)
+            for ch in available_roi
+        ]
+
+        roi_data1 = averaged_data1.data[roi_indices, :]
+        roi_data2 = averaged_data2.data[roi_indices, :]
+
+        # -----------------------------------------------------
+        # Average all available ROI channels
+        #
+        # Shape before:
+        #     n_ROI_channels x time
+        #
+        # Shape after:
+        #     1 x time
+        # -----------------------------------------------------
+
+        roi_average1 = np.mean(
+            roi_data1,
+            axis=0,
+            keepdims=True
+        )
+
+        roi_average2 = np.mean(
+            roi_data2,
+            axis=0,
+            keepdims=True
+        )
+
+        # =====================================================
+        # INTERPOLATE TO COMMON TIME GRID
+        # =====================================================
+
+        new_data1 = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data1.times,
+                roi_average1[0]
+            )
+        ])
+
+        new_data2 = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data2.times,
+                roi_average2[0]
+            )
+        ])
+
+        # =====================================================
+        # CREATE ROI EVOKED OBJECTS
+        # =====================================================
+
+        roi_info = mne.create_info(
+            ch_names=['ROI'],
+            sfreq=sfreq,
+            ch_types='eeg'
+        )
+
+        evoked_interp1 = mne.EvokedArray(
+            new_data1,
+            roi_info,
+            tmin=common_times[0]
+        )
+
+        evoked_interp2 = mne.EvokedArray(
+            new_data2,
+            roi_info,
+            tmin=common_times[0]
+        )
+
+        # =====================================================
+        # STORE
+        # =====================================================
+
+        all_cond1.append(evoked_interp1)
+        all_cond2.append(evoked_interp2)
+
+        subs_included.append(subject)
+
+    # =========================================================
+    # CHECK SUBJECTS
+    # =========================================================
+
+    if len(all_cond1) == 0:
+
+        raise RuntimeError(
+            "No subjects were included. "
+            "Check condition, condition names, "
+            "and whether ROI channels are present."
+        )
+
+    print(
+        f"\nNumber of subjects included: "
+        f"{len(subs_included)}"
+    )
+
+    print(
+        "Subjects:",
+        subs_included
+    )
+
+    # =========================================================
+    # GROUP-LEVEL REACTION TIMES
+    # =========================================================
+
+    mean_rt_cond1 = np.nanmean(
+        rt_cond1_subjects
+    )
+
+    mean_rt_cond2 = np.nanmean(
+        rt_cond2_subjects
+    )
+
+    # Convert to milliseconds for display
+    mean_rt_cond1_ms = (
+        mean_rt_cond1 * 1000
+    )
+
+    mean_rt_cond2_ms = (
+        mean_rt_cond2 * 1000
+    )
+
+    print("\nMean reaction times:")
+
+    print(
+        f"{epoch_cond1}: "
+        f"{mean_rt_cond1_ms:.1f} ms"
+    )
+
+    print(
+        f"{epoch_cond2}: "
+        f"{mean_rt_cond2_ms:.1f} ms"
+    )
+
+    # =========================================================
+    # CONVERT ERP DATA TO ARRAYS
+    # =========================================================
+
+    X1 = np.array([
+        evk.data
+        for evk in all_cond1
+    ])
+
+    X2 = np.array([
+        evk.data
+        for evk in all_cond2
+    ])
+
+    # Shape:
+    # subjects x 1 ROI channel x time
+
+    print("\nData shape:")
+    print("Condition 1:", X1.shape)
+    print("Condition 2:", X2.shape)
+
+    n_subjects = X1.shape[0]
+    n_channels = X1.shape[1]
+
+    times = common_times
+
+    # =========================================================
+    # GRAND AVERAGES
+    # =========================================================
+
+    avg_cond1 = mne.grand_average(
+        all_cond1
+    )
+
+    avg_cond2 = mne.grand_average(
+        all_cond2
+    )
+
+    # Give the channel a useful name
+    avg_cond1.rename_channels({
+        'ROI': 'ROI'
+    })
+
+    avg_cond2.rename_channels({
+        'ROI': 'ROI'
+    })
+
+    # =========================================================
+    # PAIRED / REPEATED-MEASURES CLUSTER TEST
+    # =========================================================
+
+    cluster_results = []
+
+    for ch in range(n_channels):
+
+        # -----------------------------------------------------
+        # Within-subject difference
+        #
+        # condition 1 - condition 2
+        # -----------------------------------------------------
+
+        difference = (
+            X1[:, ch, :]
+            -
+            X2[:, ch, :]
+        )
+
+        # -----------------------------------------------------
+        # One-sample cluster permutation test
+        # -----------------------------------------------------
+
+        T_obs, clusters, p_values, H0 = (
+            permutation_cluster_1samp_test(
+                difference,
+                n_permutations=n_permutations,
+                threshold=None,
+                tail=0,
+                out_type='indices',
+                seed=42
+            )
+        )
+
+        cluster_results.append(
+            (
+                clusters,
+                p_values
+            )
+        )
+
+    # =========================================================
+    # PLOT ROI ERP
+    # =========================================================
+
+    ch_names = avg_cond1.ch_names
+
+    fig, ax = plt.subplots(
+        1,
+        1,
+        figsize=(10, 4)
+    )
+
+    color1 = condition_color_dict[
+        epoch_cond1
+    ]
+
+    color2 = condition_color_dict[
+        epoch_cond2
+    ]
+
+    # =========================================================
+    # PLOT CONDITION 1
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_cond1.data[0],
+        color=color1,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond1} "
+            f"(RT = {mean_rt_cond1_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_cond1,
+        color=color1,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # PLOT CONDITION 2
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_cond2.data[0],
+        color=color2,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond2} "
+            f"(RT = {mean_rt_cond2_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_cond2,
+        color=color2,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # SIGNIFICANT CLUSTERS
+    # =========================================================
+
+    clusters, p_values = cluster_results[0]
+
+    for cluster, p_val in zip(
+        clusters,
+        p_values
+    ):
+
+        if p_val < alpha:
+
+            cluster_times = (
+                times[cluster[0]]
+            )
+
+            print(
+                f"Significant cluster | "
+                f"ROI = {ROI} | "
+                f"p = {p_val:.4f} | "
+                f"{cluster_times[0]:.3f}–"
+                f"{cluster_times[-1]:.3f} s"
+            )
+
+            ax.axvspan(
+                cluster_times[0],
+                cluster_times[-1],
+                color='red',
+                alpha=0.20
+            )
+
+    # =========================================================
+    # FORMATTING
+    # =========================================================
+
+    ax.axvline(
+        0,
+        color='black',
+        linestyle='--',
+        linewidth=0.8
+    )
+
+    ax.axhline(
+        0,
+        color='black',
+        linewidth=0.5
+    )
+
+    ax.set_ylabel(
+        'Amplitude'
+    )
+
+    ax.set_xlabel(
+        'Time (s)'
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    ax.legend(
+        loc='upper right'
+    )
+
+    # =========================================================
+    # FIGURE LABELS
+    # =========================================================
+
+    fig.suptitle(
+        f"{comparison} — EEG ERP\n"
+        f"ROI: {', '.join(ROI)}",
+        fontsize=14
+    )
+
+    fig.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            saving_path,
+            f"{comparison}_EEG_ERP_"
+            f"{epoch_cond1}_vs_{epoch_cond2}."
+            f"{save_as}"
+        ),
+        dpi=300
+    )
+
+    plt.show()
+
+    # =========================================================
+    # RETURN
+    # =========================================================
+
+    return (
+        avg_cond1,
+        avg_cond2,
+        cluster_results,
+        subs_included
+    )
+
+
+
+
+def eeg_erp_change_diff_on_off(
+        sub_dict_epochs,
+        epoch_cond,
+        condition_color_dict,
+        saving_path,
+        ROI,
+        alpha=0.05,
+        n_permutations=1000,
+        save_as='png'
+):
+    """
+    Compare the same trial type between DBS ON and DBS OFF.
+
+    Data are restricted to the specified ROI channels.
+
+    If the ROI contains one channel:
+        that channel is used directly.
+
+    If the ROI contains multiple channels:
+        channels are averaged within each participant first.
+
+    Participant-level ROI ERPs are then averaged across participants
+    for the grand-average ERP.
+
+    The statistical analysis is performed on the participant-level
+    DBS ON - DBS OFF ROI differences.
+
+    Parameters
+    ----------
+    sub_dict_epochs : dict
+        Dictionary with subject/session IDs as keys and MNE Epochs
+        as values.
+
+        Keys must contain either 'DBS ON' or 'DBS OFF'.
+
+    epoch_cond : str
+        Trial type to analyse, e.g. 'GO_successful'.
+
+    condition_color_dict : dict
+        Dictionary mapping 'DBS ON' and 'DBS OFF' to plotting colors.
+
+    saving_path : str
+        Directory where the figure is saved.
+
+    ROI : list of str
+        Channel names defining the ROI.
+
+        Example:
+            ['STN_L']
+
+        or:
+
+            ['STN_L_1', 'STN_L_2', 'STN_L_3']
+
+        If multiple channels are supplied, they are averaged within
+        each participant before the group-level analysis.
+
+    alpha : float
+        Significance threshold.
+
+    n_permutations : int
+        Number of permutations.
+
+    save_as : str
+        Figure format, e.g. 'png' or 'pdf'.
+
+    Returns
+    -------
+    avg_on : mne.Evoked
+        Grand-average ROI ERP for DBS ON.
+
+    avg_off : mne.Evoked
+        Grand-average ROI ERP for DBS OFF.
+
+    cluster_results : tuple
+        (clusters, p_values) from the one-sample permutation test
+        performed on the participant-level ROI differences.
+
+    subjects_included : list
+        Subjects included in the paired analysis.
+
+    mean_rt_on : float
+        Mean subject-level RT for DBS ON, in seconds.
+
+    mean_rt_off : float
+        Mean subject-level RT for DBS OFF, in seconds.
+
+    rt_by_subject : dict
+        Subject-level mean RTs for DBS ON and DBS OFF.
+    """
+
+    # =========================================================
+    # PARAMETERS
+    # =========================================================
+
+    tmin, tmax = -0.5, 1.5
+    sfreq = 250
+
+    common_times = np.arange(
+        tmin,
+        tmax + 1 / sfreq,
+        1 / sfreq
+    )
+
+    # ---------------------------------------------------------
+    # Check ROI definition
+    # ---------------------------------------------------------
+
+    if isinstance(ROI, str):
+        ROI = [ROI]
+
+    if len(ROI) == 0:
+        raise ValueError(
+            "ROI must contain at least one channel."
+        )
+
+    # Store one ROI ERP per subject/session
+    on_by_subject = {}
+    off_by_subject = {}
+
+    # Store subject-level RTs
+    rt_on_by_subject = {}
+    rt_off_by_subject = {}
+
+    latency_matched = False
+
+    # =========================================================
+    # PARSE TRIAL CONDITION
+    # =========================================================
+
+    epoch_type, outcome_str = epoch_cond.split('_')
+
+    if epoch_type == 'lmGO':
+        latency_matched = True
+        epoch_type = 'GO'
+
+    outcome = (
+        1.0 if outcome_str == 'successful'
+        else 0.0
+    )
+
+    # =========================================================
+    # COLLECT DATA
+    # =========================================================
+
+    for subject_session, epochs in sub_dict_epochs.items():
+
+        # -----------------------------------------------------
+        # Determine DBS status
+        # -----------------------------------------------------
+
+        if 'DBS ON' in subject_session:
+            dbs_status = 'DBS ON'
+
+        elif 'DBS OFF' in subject_session:
+            dbs_status = 'DBS OFF'
+
+        else:
+            continue
+
+        # -----------------------------------------------------
+        # Determine subject ID
+        # -----------------------------------------------------
+
+        subject = (
+            subject_session
+            .replace('DBS ON', '')
+            .replace('DBS OFF', '')
+            .strip()
+        )
+
+        # =====================================================
+        # CHECK ROI CHANNELS
+        # =====================================================
+
+        missing_channels = [
+            ch for ch in ROI
+            if ch not in epochs.ch_names
+        ]
+
+        if missing_channels:
+
+            print(
+                f"Skipping {subject_session}: "
+                f"ROI channel(s) not found: "
+                f"{missing_channels}"
+            )
+
+            continue
+
+        # -----------------------------------------------------
+        # Select only ROI channels
+        # -----------------------------------------------------
+
+        roi_data = epochs.copy().pick(
+            ROI
+        )
+
+        # =====================================================
+        # SELECT DESIRED TRIAL TYPE
+        # =====================================================
+
+        type_mask = (
+            roi_data.metadata["event"] == epoch_type
+        )
+
+        outcome_mask = (
+            roi_data.metadata["key_resp_experiment.corr"]
+            == outcome
+        )
+
+        data = roi_data[
+            type_mask & outcome_mask
+        ]
+
+        # -----------------------------------------------------
+        # Optional latency matching
+        # -----------------------------------------------------
+
+        if latency_matched:
+
+            if len(data) == 0:
+                continue
+
+            rt = np.asarray(
+                data.metadata["key_resp_experiment.rt"]
+            )
+
+            threshold = np.percentile(
+                rt,
+                50
+            )
+
+            slow_mask = rt >= threshold
+
+            data = data[slow_mask]
+
+        # -----------------------------------------------------
+        # Check that trials exist
+        # -----------------------------------------------------
+
+        if len(data) == 0:
+
+            print(
+                f"Skipping {subject_session}: "
+                f"no {epoch_cond} trials"
+            )
+
+            continue
+
+        # =====================================================
+        # REACTION TIME
+        # =====================================================
+
+        rt = data.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        rt = rt[~np.isnan(rt)]
+
+        mean_rt_subject = (
+            np.mean(rt)
+            if len(rt) > 0
+            else np.nan
+        )
+
+        if dbs_status == 'DBS ON':
+            rt_on_by_subject[subject] = mean_rt_subject
+
+        else:
+            rt_off_by_subject[subject] = mean_rt_subject
+
+        # =====================================================
+        # CROP
+        # =====================================================
+
+        cropped_data = data.copy().crop(
+            tmin=tmin,
+            tmax=tmax
+        )
+
+        # =====================================================
+        # BASELINE CORRECTION
+        # =====================================================
+
+        crunched_data = (
+            cropped_data
+            .copy()
+            .apply_baseline((-0.5, 0))
+        )
+
+        # =====================================================
+        # AVERAGE TRIALS WITHIN SUBJECT
+        # =====================================================
+
+        averaged_data = crunched_data.average()
+
+        # =====================================================
+        # INTERPOLATE TO COMMON TIME GRID
+        # =====================================================
+
+        new_data = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data.times,
+                ch
+            )
+            for ch in averaged_data.data
+        ])
+
+        # =====================================================
+        # AVERAGE ACROSS ROI CHANNELS
+        # =====================================================
+
+        # Shape before averaging:
+        #
+        #     ROI channels × time
+        #
+        # Shape after averaging:
+        #
+        #     time
+        #
+        # If there is only one ROI channel, this simply
+        # returns that channel's time series.
+
+        roi_erp = np.mean(
+            new_data,
+            axis=0
+        )
+
+        # =====================================================
+        # STORE PARTICIPANT-LEVEL ROI ERP
+        # =====================================================
+
+        if dbs_status == 'DBS ON':
+            on_by_subject[subject] = roi_erp
+
+        else:
+            off_by_subject[subject] = roi_erp
+
+    # =========================================================
+    # FIND SUBJECTS WITH BOTH DBS ON AND DBS OFF
+    # =========================================================
+
+    subjects_included = sorted(
+        set(on_by_subject.keys())
+        &
+        set(off_by_subject.keys())
+    )
+
+    if len(subjects_included) == 0:
+
+        raise RuntimeError(
+            "No subjects have both DBS ON and DBS OFF data "
+            f"for {epoch_cond}."
+        )
+
+    print(
+        f"\nNumber of paired subjects included: "
+        f"{len(subjects_included)}"
+    )
+
+    print(
+        "Subjects:",
+        subjects_included
+    )
+
+    print(
+        "ROI channels:",
+        ROI
+    )
+
+    # =========================================================
+    # CREATE PAIRED ARRAYS
+    # =========================================================
+
+    X_on = np.array([
+        on_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    X_off = np.array([
+        off_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    # Shape:
+    #
+    #     subjects × time
+
+    print("\nData shape:")
+    print("DBS ON:", X_on.shape)
+    print("DBS OFF:", X_off.shape)
+
+    n_subjects = X_on.shape[0]
+
+    times = common_times
+
+    # =========================================================
+    # GRAND AVERAGE ACROSS PARTICIPANTS
+    # =========================================================
+
+    grand_on = np.mean(
+        X_on,
+        axis=0
+    )
+
+    grand_off = np.mean(
+        X_off,
+        axis=0
+    )
+
+    # ---------------------------------------------------------
+    # Create Evoked objects for the ROI
+    # ---------------------------------------------------------
+
+    # Use the first ROI channel's info as the template.
+    #
+    # Since the ROI has already been averaged across channels,
+    # the resulting Evoked represents the ROI rather than an
+    # individual electrode.
+
+    first_subject = subjects_included[0]
+
+    # Find an original Evoked/info object by rebuilding a
+    # minimal info object from the first available dataset.
+
+    template_epochs = None
+
+    for subject_session, epochs in sub_dict_epochs.items():
+
+        subject = (
+            subject_session
+            .replace('DBS ON', '')
+            .replace('DBS OFF', '')
+            .strip()
+        )
+
+        if subject == first_subject:
+
+            template_epochs = epochs
+            break
+
+    if template_epochs is None:
+        raise RuntimeError(
+            "Could not find template epochs for ROI Evoked."
+        )
+
+    roi_info = (
+        template_epochs
+        .copy()
+        .pick([ROI[0]])
+        .info
+        .copy()
+    )
+
+    avg_on = mne.EvokedArray(
+        grand_on[np.newaxis, :],
+        roi_info,
+        tmin=common_times[0]
+    )
+
+    avg_off = mne.EvokedArray(
+        grand_off[np.newaxis, :],
+        roi_info,
+        tmin=common_times[0]
+    )
+
+    # Rename the channel to make clear that it represents
+    # the averaged ROI.
+
+    if len(ROI) == 1:
+
+        avg_on.rename_channels({
+            ROI[0]: ROI[0]
+        })
+
+        avg_off.rename_channels({
+            ROI[0]: ROI[0]
+        })
+
+    else:
+
+        avg_on.rename_channels({
+            ROI[0]: 'ROI'
+        })
+
+        avg_off.rename_channels({
+            ROI[0]: 'ROI'
+        })
+
+    # =========================================================
+    # GROUP-LEVEL REACTION TIMES
+    # =========================================================
+
+    mean_rt_on = np.nanmean([
+        rt_on_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    mean_rt_off = np.nanmean([
+        rt_off_by_subject[sub]
+        for sub in subjects_included
+    ])
+
+    mean_rt_on_ms = mean_rt_on * 1000
+    mean_rt_off_ms = mean_rt_off * 1000
+
+    print("\nMean reaction times:")
+
+    print(
+        f"{epoch_cond} — DBS ON: "
+        f"{mean_rt_on_ms:.1f} ms"
+    )
+
+    print(
+        f"{epoch_cond} — DBS OFF: "
+        f"{mean_rt_off_ms:.1f} ms"
+    )
+
+    # =========================================================
+    # STORE RTs BY SUBJECT
+    # =========================================================
+
+    rt_by_subject = {}
+
+    for subject in subjects_included:
+
+        rt_by_subject[subject] = {
+            'DBS ON': rt_on_by_subject[subject],
+            'DBS OFF': rt_off_by_subject[subject]
+        }
+
+    # =========================================================
+    # PAIRED / REPEATED-MEASURES CLUSTER TEST
+    # =========================================================
+
+    # One ROI time series per participant.
+    #
+    # Therefore the statistical input has shape:
+    #
+    #     subjects × time
+
+    difference = (
+        X_on
+        -
+        X_off
+    )
+
+    T_obs, clusters, p_values, H0 = (
+        permutation_cluster_1samp_test(
+            difference,
+            n_permutations=n_permutations,
+            threshold=None,
+            tail=0,
+            out_type='indices',
+            seed=42
+        )
+    )
+
+    cluster_results = (
+        clusters,
+        p_values
+    )
+
+    # =========================================================
+    # PLOT ROI ERP
+    # =========================================================
+
+    fig, ax = plt.subplots(
+        1,
+        1,
+        figsize=(10, 5)
+    )
+
+    color_on = condition_color_dict['DBS ON']
+    color_off = condition_color_dict['DBS OFF']
+
+    # =========================================================
+    # DBS ON
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_on.data[0],
+        color=color_on,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond} — DBS ON "
+            f"(RT = {mean_rt_on_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_on,
+        color=color_on,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # DBS OFF
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_off.data[0],
+        color=color_off,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond} — DBS OFF "
+            f"(RT = {mean_rt_off_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_off,
+        color=color_off,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # SIGNIFICANT CLUSTERS
+    # =========================================================
+
+    for cluster, p_val in zip(
+        clusters,
+        p_values
+    ):
+
+        if p_val < alpha:
+
+            cluster_times = (
+                times[cluster[0]]
+            )
+
+            print(
+                f"Significant cluster | "
+                f"ROI = {ROI} | "
+                f"p = {p_val:.4f} | "
+                f"{cluster_times[0]:.3f}–"
+                f"{cluster_times[-1]:.3f} s"
+            )
+
+            ax.axvspan(
+                cluster_times[0],
+                cluster_times[-1],
+                color='red',
+                alpha=0.20
+            )
+
+    # =========================================================
+    # FORMATTING
+    # =========================================================
+
+    ax.axvline(
+        0,
+        color='black',
+        linestyle='--',
+        linewidth=0.8
+    )
+
+    ax.axhline(
+        0,
+        color='black',
+        linewidth=0.5
+    )
+
+    if len(ROI) == 1:
+
+        roi_label = ROI[0]
+
+    else:
+
+        roi_label = (
+            "ROI: "
+            + ", ".join(ROI)
+        )
+
+    ax.set_ylabel(
+        "Amplitude"
+    )
+
+    ax.set_xlabel(
+        "Time (s)"
+    )
+
+    ax.set_title(
+        f"{epoch_cond} — DBS ON vs DBS OFF\n"
+        f"{roi_label}"
+    )
+
+    ax.legend(
+        loc='upper right'
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    fig.tight_layout()
+
+    # =========================================================
+    # SAVE
+    # =========================================================
+
+    plt.savefig(
+        os.path.join(
+            saving_path,
+            f"DBS_ON_vs_OFF_STN_ROI_ERP_"
+            f"{epoch_cond}.{save_as}"
+        ),
+        dpi=300
+    )
+
+    plt.show()
+
+    # =========================================================
+    # RETURN
+    # =========================================================
+
+    return (
+        avg_on,
+        avg_off,
+        cluster_results,
+        subjects_included,
+        mean_rt_on,
+        mean_rt_off,
+        rt_by_subject
+    )
+
+
+
+
+def eeg_erp_change_control_vs_pd(
+        sub_dict_epochs,
+        epoch_cond,
+        condition_color_dict,
+        saving_path,
+        ROI,
+        pd_condition='DBS ON',
+        alpha=0.05,
+        n_permutations=1000,
+        save_as='png'
+):
+    """
+    Compare the same trial type between Healthy controls and PD.
+
+    The PD group can be either DBS ON or DBS OFF. The two groups
+    consist of different subjects, so the statistical comparison is
+    performed as an independent-samples cluster permutation test.
+
+    Data are restricted to the specified ROI channels.
+
+    If the ROI contains one channel:
+        that channel is used directly.
+
+    If the ROI contains multiple channels:
+        channels are averaged within each participant first.
+
+    Participant-level ROI ERPs are then averaged across participants
+    for the group-level ERP.
+
+    Statistical analysis
+    --------------------
+    Healthy controls and PD subjects are treated as independent groups.
+
+    For each time point:
+
+        difference = Healthy controls - PD
+
+    An independent-samples cluster permutation test is then performed
+    across time.
+
+    Parameters
+    ----------
+    sub_dict_epochs : dict
+        Dictionary with subject/session IDs as keys and MNE Epochs
+        as values.
+
+        Keys must identify subjects as either:
+
+            'control'
+
+        or:
+
+            'DBS ON'
+            'DBS OFF'
+
+        Examples:
+            'sub01 control'
+            'sub02 DBS ON'
+            'sub03 DBS OFF'
+
+    epoch_cond : str
+        Trial type to analyse, e.g. 'GO_successful'.
+
+    condition_color_dict : dict
+        Dictionary mapping the plotting conditions to colors.
+
+        Example:
+            {
+                'control': 'blue',
+                'DBS ON': 'red',
+                'DBS OFF': 'green'
+            }
+
+        Only 'control' and the selected pd_condition are required.
+
+    saving_path : str
+        Directory where the figure is saved.
+
+    ROI : list of str
+        Channel names defining the ROI.
+
+        Example:
+            ['STN_L']
+
+        or:
+
+            ['STN_L_1', 'STN_L_2', 'STN_L_3']
+
+        If multiple channels are supplied, they are averaged within
+        each participant before the group-level analysis.
+
+    pd_condition : str
+        Which PD group to compare against Healthy controls.
+
+        Must be either:
+            'DBS ON'
+        or:
+            'DBS OFF'
+
+    alpha : float
+        Significance threshold.
+
+    n_permutations : int
+        Number of permutations.
+
+    save_as : str
+        Figure format, e.g. 'png' or 'pdf'.
+
+    Returns
+    -------
+    avg_control : mne.Evoked
+        Grand-average ROI ERP for Healthy controls.
+
+    avg_pd : mne.Evoked
+        Grand-average ROI ERP for PD.
+
+    cluster_results : tuple
+        Tuple containing:
+
+            (clusters, p_values)
+
+        from the independent-samples cluster permutation test.
+
+    controls_included : list
+        Healthy control subjects included in the analysis.
+
+    pd_included : list
+        PD subjects included in the analysis.
+
+    mean_rt_control : float
+        Mean subject-level RT for Healthy controls, in seconds.
+
+    mean_rt_pd : float
+        Mean subject-level RT for PD, in seconds.
+
+    rt_by_subject : dict
+        Subject-level mean RTs and group labels.
+    """
+
+    # =========================================================
+    # PARAMETERS
+    # =========================================================
+
+    tmin, tmax = -0.5, 1.5
+    sfreq = 250
+
+    common_times = np.arange(
+        tmin,
+        tmax + 1 / sfreq,
+        1 / sfreq
+    )
+
+    # =========================================================
+    # CHECK PD CONDITION
+    # =========================================================
+
+    if pd_condition not in ['DBS ON', 'DBS OFF']:
+
+        raise ValueError(
+            "pd_condition must be either "
+            "'DBS ON' or 'DBS OFF'."
+        )
+
+    # =========================================================
+    # CHECK ROI DEFINITION
+    # =========================================================
+
+    if isinstance(ROI, str):
+        ROI = [ROI]
+
+    if len(ROI) == 0:
+
+        raise ValueError(
+            "ROI must contain at least one channel."
+        )
+
+    # =========================================================
+    # STORAGE
+    # =========================================================
+
+    # One ROI ERP per subject
+    control_by_subject = {}
+    pd_by_subject = {}
+
+    # Subject-level RTs
+    rt_control_by_subject = {}
+    rt_pd_by_subject = {}
+
+    latency_matched = False
+
+    # =========================================================
+    # PARSE TRIAL CONDITION
+    # =========================================================
+
+    epoch_type, outcome_str = epoch_cond.split('_')
+
+    if epoch_type == 'lmGO':
+
+        latency_matched = True
+        epoch_type = 'GO'
+
+    outcome = (
+        1.0
+        if outcome_str == 'successful'
+        else 0.0
+    )
+
+    # =========================================================
+    # COLLECT DATA
+    # =========================================================
+
+    for subject_session, epochs in sub_dict_epochs.items():
+
+        # =====================================================
+        # DETERMINE GROUP
+        # =====================================================
+
+        if 'C' in subject_session:
+
+            group = 'control'
+
+        elif pd_condition in subject_session:
+
+            group = 'PD'
+
+        else:
+
+            # Ignore the other PD condition.
+            #
+            # For example, if pd_condition == 'DBS ON',
+            # subjects labelled 'DBS OFF' are ignored.
+
+            continue
+
+        # =====================================================
+        # DETERMINE SUBJECT ID
+        # =====================================================
+
+        subject = (
+            subject_session
+            .replace('DBS ON', '')
+            .replace('DBS OFF', '')
+            .replace('control', '')
+            .strip()
+        )
+
+        # =====================================================
+        # CHECK ROI CHANNELS
+        # =====================================================
+
+        missing_channels = [
+            ch
+            for ch in ROI
+            if ch not in epochs.ch_names
+        ]
+
+        if missing_channels:
+
+            print(
+                f"Skipping {subject_session}: "
+                f"ROI channel(s) not found: "
+                f"{missing_channels}"
+            )
+
+            continue
+
+        # =====================================================
+        # SELECT ONLY ROI CHANNELS
+        # =====================================================
+
+        roi_data = (
+            epochs
+            .copy()
+            .pick(ROI)
+        )
+
+        # =====================================================
+        # SELECT DESIRED TRIAL TYPE
+        # =====================================================
+
+        type_mask = (
+            roi_data.metadata["event"]
+            == epoch_type
+        )
+
+        outcome_mask = (
+            roi_data.metadata[
+                "key_resp_experiment.corr"
+            ]
+            == outcome
+        )
+
+        data = roi_data[
+            type_mask & outcome_mask
+        ]
+
+        # =====================================================
+        # OPTIONAL LATENCY MATCHING
+        # =====================================================
+
+        if latency_matched:
+
+            if len(data) == 0:
+                continue
+
+            rt = np.asarray(
+                data.metadata[
+                    "key_resp_experiment.rt"
+                ]
+            )
+
+            threshold = np.percentile(
+                rt,
+                50
+            )
+
+            slow_mask = rt >= threshold
+
+            data = data[slow_mask]
+
+        # =====================================================
+        # CHECK THAT TRIALS EXIST
+        # =====================================================
+
+        if len(data) == 0:
+
+            print(
+                f"Skipping {subject_session}: "
+                f"no {epoch_cond} trials"
+            )
+
+            continue
+
+        # =====================================================
+        # REACTION TIME
+        # =====================================================
+
+        rt = data.metadata[
+            "key_resp_experiment.rt"
+        ].to_numpy()
+
+        # Remove NaNs
+        rt = rt[~np.isnan(rt)]
+
+        mean_rt_subject = (
+            np.mean(rt)
+            if len(rt) > 0
+            else np.nan
+        )
+
+        if group == 'control':
+
+            rt_control_by_subject[
+                subject
+            ] = mean_rt_subject
+
+        else:
+
+            rt_pd_by_subject[
+                subject
+            ] = mean_rt_subject
+
+        # =====================================================
+        # CROP
+        # =====================================================
+
+        cropped_data = (
+            data
+            .copy()
+            .crop(
+                tmin=tmin,
+                tmax=tmax
+            )
+        )
+
+        # =====================================================
+        # BASELINE CORRECTION
+        # =====================================================
+
+        crunched_data = (
+            cropped_data
+            .copy()
+            .apply_baseline(
+                (-0.5, 0)
+            )
+        )
+
+        # =====================================================
+        # AVERAGE TRIALS WITHIN SUBJECT
+        # =====================================================
+
+        averaged_data = (
+            crunched_data.average()
+        )
+
+        # =====================================================
+        # INTERPOLATE TO COMMON TIME GRID
+        # =====================================================
+
+        new_data = np.vstack([
+            np.interp(
+                common_times,
+                averaged_data.times,
+                ch
+            )
+            for ch in averaged_data.data
+        ])
+
+        # =====================================================
+        # AVERAGE ACROSS ROI CHANNELS
+        # =====================================================
+
+        # Before:
+        #
+        #     ROI channels × time
+        #
+        # After:
+        #
+        #     time
+        #
+        # For one channel, this simply returns that channel.
+        #
+        # For multiple channels, every channel contributes
+        # equally to the participant's ROI ERP.
+
+        roi_erp = np.mean(
+            new_data,
+            axis=0
+        )
+
+        # =====================================================
+        # STORE PARTICIPANT-LEVEL ROI ERP
+        # =====================================================
+
+        if group == 'control':
+
+            control_by_subject[
+                subject
+            ] = roi_erp
+
+        else:
+
+            pd_by_subject[
+                subject
+            ] = roi_erp
+
+    # =========================================================
+    # CHECK GROUPS
+    # =========================================================
+
+    controls_included = sorted(
+        control_by_subject.keys()
+    )
+
+    pd_included = sorted(
+        pd_by_subject.keys()
+    )
+
+    if len(controls_included) == 0:
+
+        raise RuntimeError(
+            "No Healthy control subjects have usable data "
+            f"for {epoch_cond}."
+        )
+
+    if len(pd_included) == 0:
+
+        raise RuntimeError(
+            f"No PD subjects with {pd_condition} have usable "
+            f"data for {epoch_cond}."
+        )
+
+    # =========================================================
+    # PRINT GROUP INFORMATION
+    # =========================================================
+
+    print(
+        f"\nHealthy controls included: "
+        f"{len(controls_included)}"
+    )
+
+    print(
+        "Controls:",
+        controls_included
+    )
+
+    print(
+        f"\nPD subjects included "
+        f"({pd_condition}): "
+        f"{len(pd_included)}"
+    )
+
+    print(
+        "PD:",
+        pd_included
+    )
+
+    print(
+        "\nROI channels:",
+        ROI
+    )
+
+    # =========================================================
+    # CONVERT ERP DATA TO ARRAYS
+    # =========================================================
+
+    X_control = np.array([
+        control_by_subject[sub]
+        for sub in controls_included
+    ])
+
+    X_pd = np.array([
+        pd_by_subject[sub]
+        for sub in pd_included
+    ])
+
+    # Shape:
+    #
+    #     controls × time
+    #
+    #     PD × time
+
+    print("\nData shape:")
+    print(
+        "Healthy controls:",
+        X_control.shape
+    )
+
+    print(
+        f"PD ({pd_condition}):",
+        X_pd.shape
+    )
+
+    n_controls = X_control.shape[0]
+    n_pd = X_pd.shape[0]
+
+    times = common_times
+
+    # =========================================================
+    # GRAND AVERAGES
+    # =========================================================
+
+    grand_control = np.mean(
+        X_control,
+        axis=0
+    )
+
+    grand_pd = np.mean(
+        X_pd,
+        axis=0
+    )
+
+    # =========================================================
+    # CREATE EVOKED OBJECTS FOR ROI
+    # =========================================================
+
+    # Find a template Epochs object containing the first ROI
+    # channel. This is only used to create the MNE Info object.
+
+    first_subject = (
+        controls_included[0]
+    )
+
+    template_epochs = None
+
+    for subject_session, epochs in sub_dict_epochs.items():
+
+        subject = (
+            subject_session
+            .replace('DBS ON', '')
+            .replace('DBS OFF', '')
+            .replace('control', '')
+            .strip()
+        )
+
+        if subject == first_subject:
+
+            if all(
+                ch in epochs.ch_names
+                for ch in ROI
+            ):
+
+                template_epochs = epochs
+                break
+
+    # If the first control cannot provide the template,
+    # try any dataset containing the ROI.
+
+    if template_epochs is None:
+
+        for subject_session, epochs in sub_dict_epochs.items():
+
+            if all(
+                ch in epochs.ch_names
+                for ch in ROI
+            ):
+
+                template_epochs = epochs
+                break
+
+    if template_epochs is None:
+
+        raise RuntimeError(
+            "Could not find a dataset containing the ROI "
+            "channels needed to create the Evoked object."
+        )
+
+    # Use the first ROI channel as an Info template.
+    #
+    # The actual ERP has already been averaged across all
+    # ROI channels, so the resulting Evoked represents the ROI.
+
+    roi_info = (
+        template_epochs
+        .copy()
+        .pick([ROI[0]])
+        .info
+        .copy()
+    )
+
+    avg_control = mne.EvokedArray(
+        grand_control[np.newaxis, :],
+        roi_info,
+        tmin=common_times[0]
+    )
+
+    avg_pd = mne.EvokedArray(
+        grand_pd[np.newaxis, :],
+        roi_info,
+        tmin=common_times[0]
+    )
+
+    # Rename the channel to indicate that it represents
+    # the ROI when multiple channels were averaged.
+
+    if len(ROI) > 1:
+
+        avg_control.rename_channels({
+            ROI[0]: 'ROI'
+        })
+
+        avg_pd.rename_channels({
+            ROI[0]: 'ROI'
+        })
+
+    # =========================================================
+    # GROUP-LEVEL REACTION TIMES
+    # =========================================================
+
+    mean_rt_control = np.nanmean([
+        rt_control_by_subject[sub]
+        for sub in controls_included
+    ])
+
+    mean_rt_pd = np.nanmean([
+        rt_pd_by_subject[sub]
+        for sub in pd_included
+    ])
+
+    mean_rt_control_ms = (
+        mean_rt_control * 1000
+    )
+
+    mean_rt_pd_ms = (
+        mean_rt_pd * 1000
+    )
+
+    print(
+        "\nMean reaction times:"
+    )
+
+    print(
+        f"{epoch_cond} — Healthy controls: "
+        f"{mean_rt_control_ms:.1f} ms"
+    )
+
+    print(
+        f"{epoch_cond} — PD {pd_condition}: "
+        f"{mean_rt_pd_ms:.1f} ms"
+    )
+
+    # =========================================================
+    # STORE RTs BY SUBJECT
+    # =========================================================
+
+    rt_by_subject = {}
+
+    for subject in controls_included:
+
+        rt_by_subject[subject] = {
+            'group': 'control',
+            'RT': rt_control_by_subject[subject]
+        }
+
+    for subject in pd_included:
+
+        rt_by_subject[subject] = {
+            'group': 'PD',
+            'condition': pd_condition,
+            'RT': rt_pd_by_subject[subject]
+        }
+
+    # =========================================================
+    # INDEPENDENT-SAMPLES CLUSTER PERMUTATION TEST
+    # =========================================================
+
+    # IMPORTANT:
+    #
+    # Controls and PD are different subjects.
+    #
+    # Therefore, we DO NOT calculate:
+    #
+    #     X_control - X_pd
+    #
+    # because the observations are not paired.
+    #
+    # Instead, permutation_cluster_test receives the two
+    # independent groups separately:
+    #
+    #     [controls × time, PD × time]
+
+    T_obs, clusters, p_values, H0 = (
+        permutation_cluster_test(
+            [
+                X_control,
+                X_pd
+            ],
+            n_permutations=n_permutations,
+            threshold=None,
+            tail=0,
+            out_type='indices',
+            seed=42
+        )
+    )
+
+    cluster_results = (
+        clusters,
+        p_values
+    )
+
+    # =========================================================
+    # PLOT ROI ERPs
+    # =========================================================
+
+    fig, ax = plt.subplots(
+        1,
+        1,
+        figsize=(10, 5)
+    )
+
+    # =========================================================
+    # COLORS
+    # =========================================================
+
+    color_control = (
+        condition_color_dict['control']
+    )
+
+    color_pd = (
+        condition_color_dict[pd_condition]
+    )
+
+    # =========================================================
+    # HEALTHY CONTROLS
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_control.data[0],
+        color=color_control,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond} — Healthy controls "
+            f"(n = {n_controls}, "
+            f"RT = {mean_rt_control_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_control,
+        color=color_control,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # PD
+    # =========================================================
+
+    ax.plot(
+        times,
+        avg_pd.data[0],
+        color=color_pd,
+        linewidth=1.5,
+        label=(
+            f"{epoch_cond} — PD {pd_condition} "
+            f"(n = {n_pd}, "
+            f"RT = {mean_rt_pd_ms:.0f} ms)"
+        )
+    )
+
+    ax.axvline(
+        mean_rt_pd,
+        color=color_pd,
+        linestyle=':',
+        linewidth=1.0
+    )
+
+    # =========================================================
+    # SIGNIFICANT CLUSTERS
+    # =========================================================
+
+    for cluster, p_val in zip(
+        clusters,
+        p_values
+    ):
+
+        if p_val < alpha:
+
+            # Cluster is a tuple containing the indices
+            # along the tested time dimension.
+
+            cluster_times = (
+                times[cluster[0]]
+            )
+
+            print(
+                f"Significant cluster | "
+                f"Healthy controls vs PD {pd_condition} | "
+                f"ROI = {ROI} | "
+                f"p = {p_val:.4f} | "
+                f"{cluster_times[0]:.3f}–"
+                f"{cluster_times[-1]:.3f} s"
+            )
+
+            ax.axvspan(
+                cluster_times[0],
+                cluster_times[-1],
+                color='red',
+                alpha=0.20
+            )
+
+    # =========================================================
+    # FORMATTING
+    # =========================================================
+
+    ax.axvline(
+        0,
+        color='black',
+        linestyle='--',
+        linewidth=0.8
+    )
+
+    ax.axhline(
+        0,
+        color='black',
+        linewidth=0.5
+    )
+
+    if len(ROI) == 1:
+
+        roi_label = ROI[0]
+
+    else:
+
+        roi_label = (
+            "ROI: "
+            +
+            ", ".join(ROI)
+        )
+
+    ax.set_ylabel(
+        "Amplitude"
+    )
+
+    ax.set_xlabel(
+        "Time (s)"
+    )
+
+    ax.set_title(
+        f"{epoch_cond} — Healthy controls vs "
+        f"PD {pd_condition}\n"
+        f"{roi_label}"
+    )
+
+    ax.legend(
+        loc='upper right'
+    )
+
+    ax.grid(
+        alpha=0.2
+    )
+
+    fig.tight_layout()
+
+    # =========================================================
+    # SAVE
+    # =========================================================
+
+    plt.savefig(
+        os.path.join(
+            saving_path,
+            f"Control_vs_PD_{pd_condition.replace(' ', '_')}_"
+            f"ROI_ERP_{epoch_cond}.{save_as}"
+        ),
+        dpi=300
+    )
+
+    plt.show()
+
+    # =========================================================
+    # RETURN
+    # =========================================================
+
+    return (
+        avg_control,
+        avg_pd,
+        cluster_results,
+        controls_included,
+        pd_included,
+        mean_rt_control,
+        mean_rt_pd,
+        rt_by_subject
+    )
