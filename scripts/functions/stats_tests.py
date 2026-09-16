@@ -346,70 +346,70 @@ def build_unimodal_summary_table(stats, trial_type='GO', rt_key_map=None):
     return pd.DataFrame(rows)
 
 
-# def fit_pooled_gmm_per_subject(stats, trial_type='GC', rt_key_map=None,
-#                                 n_init=10, random_state=0, min_trials=20):
-#     """
-#     Fit one 2-component GMM per subject, pooling RTs across DBS OFF and
-#     DBS ON, to obtain subject-specific but condition-INVARIANT component
-#     locations/scales. These fixed components are the reference
-#     distributions used later to classify individual trials.
+def fit_pooled_gmm_per_subject(stats, trial_type='GC', rt_key_map=None,
+                                n_init=10, random_state=0, min_trials=20):
+    """
+    Fit one 2-component GMM per subject, pooling RTs across DBS OFF and
+    DBS ON, to obtain subject-specific but condition-INVARIANT component
+    locations/scales. These fixed components are the reference
+    distributions used later to classify individual trials.
 
-#     Returns {subject: {'mean_fast', 'sd_fast', 'mean_slow', 'sd_slow',
-#     'pooled_weight_fast', 'bic_1comp', 'bic_2comp', 'favors_bimodal',
-#     'n_pooled_trials'}}.
-#     """
-#     if rt_key_map is None:
-#         rt_key_map = {
-#             'GC': 'GC RTs from continue cue (ms)',
-#             'GS': 'GS RTs from stop cue (ms)',
-#             'GO': 'go_trial RTs (ms)',
-#             'GF': 'go_fast_trial RTs (ms)',
-#         }
-#     rt_key = rt_key_map[trial_type]
-#     off_subjects = {k: v for k, v in stats.items() if 'OFF' in k}
-#     out = {}
+    Returns {subject: {'mean_fast', 'sd_fast', 'mean_slow', 'sd_slow',
+    'pooled_weight_fast', 'bic_1comp', 'bic_2comp', 'favors_bimodal',
+    'n_pooled_trials'}}.
+    """
+    if rt_key_map is None:
+        rt_key_map = {
+            'GC': 'GC RTs from continue cue (ms)',
+            'GS': 'GS RTs from stop cue (ms)',
+            'GO': 'go_trial RTs (ms)',
+            'GF': 'go_fast_trial RTs (ms)',
+        }
+    rt_key = rt_key_map[trial_type]
+    off_subjects = {k: v for k, v in stats.items() if 'OFF' in k}
+    out = {}
 
-#     for off_key, off_data in off_subjects.items():
-#         on_key = off_key.replace('OFF', 'ON')
-#         if on_key not in stats:
-#             continue
-#         subj_id = off_key.split(' ')[0]
+    for off_key, off_data in off_subjects.items():
+        on_key = off_key.replace('OFF', 'ON')
+        if on_key not in stats:
+            continue
+        subj_id = off_key.split(' ')[0]
 
-#         rts_off = np.asarray(off_data.get(rt_key, []), dtype=float)
-#         rts_on = np.asarray(stats[on_key].get(rt_key, []), dtype=float)
-#         rts_off = rts_off[np.isfinite(rts_off)] / 1000.0
-#         rts_on = rts_on[np.isfinite(rts_on)] / 1000.0
-#         pooled = np.concatenate([rts_off, rts_on])
+        rts_off = np.asarray(off_data.get(rt_key, []), dtype=float)
+        rts_on = np.asarray(stats[on_key].get(rt_key, []), dtype=float)
+        rts_off = rts_off[np.isfinite(rts_off)] / 1000.0
+        rts_on = rts_on[np.isfinite(rts_on)] / 1000.0
+        pooled = np.concatenate([rts_off, rts_on])
 
-#         if len(pooled) < min_trials:
-#             print(f'{subj_id}: only {len(pooled)} pooled trials, skipping.')
-#             continue
+        if len(pooled) < min_trials:
+            print(f'{subj_id}: only {len(pooled)} pooled trials, skipping.')
+            continue
 
-#         X = pooled.reshape(-1, 1)
+        X = pooled.reshape(-1, 1)
 
-#         with threadpool_limits(limits=1): 
-#             gmm1 = GaussianMixture(n_components=1, random_state=random_state).fit(X)
-#             gmm2 = GaussianMixture(n_components=2, n_init=n_init,
-#                                     random_state=random_state).fit(X)
-#             bic1, bic2 = gmm1.bic(X), gmm2.bic(X)
+        with threadpool_limits(limits=1): 
+            gmm1 = GaussianMixture(n_components=1, random_state=random_state).fit(X)
+            gmm2 = GaussianMixture(n_components=2, n_init=n_init,
+                                    random_state=random_state).fit(X)
+            bic1, bic2 = gmm1.bic(X), gmm2.bic(X)
 
-#         order = np.argsort(gmm2.means_.flatten())
-#         means = gmm2.means_.flatten()[order]
-#         weights = gmm2.weights_[order]
-#         sds = np.sqrt(gmm2.covariances_.flatten())[order]
+        order = np.argsort(gmm2.means_.flatten())
+        means = gmm2.means_.flatten()[order]
+        weights = gmm2.weights_[order]
+        sds = np.sqrt(gmm2.covariances_.flatten())[order]
 
-#         out[subj_id] = {
-#             'mean_fast': means[0], 'sd_fast': sds[0],
-#             'mean_slow': means[1], 'sd_slow': sds[1],
-#             'pooled_weight_fast': weights[0],
-#             'bic_1comp': bic1, 'bic_2comp': bic2,
-#             'favors_bimodal': bic2 < bic1,
-#             'n_pooled_trials': len(pooled),
-#         }
+        out[subj_id] = {
+            'mean_fast': means[0], 'sd_fast': sds[0],
+            'mean_slow': means[1], 'sd_slow': sds[1],
+            'pooled_weight_fast': weights[0],
+            'bic_1comp': bic1, 'bic_2comp': bic2,
+            'favors_bimodal': bic2 < bic1,
+            'n_pooled_trials': len(pooled),
+        }
 
-#     n_ok = sum(v['favors_bimodal'] for v in out.values())
-#     print(f'Pooled 2-component model favored for {n_ok}/{len(out)} subjects.')
-#     return out
+    n_ok = sum(v['favors_bimodal'] for v in out.values())
+    print(f'Pooled 2-component model favored for {n_ok}/{len(out)} subjects.')
+    return out
 
 
 
