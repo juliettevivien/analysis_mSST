@@ -511,7 +511,9 @@ def extract_stats(data):
         no_response_go = total_go_trials - early_and_correct_go
         if no_response_go > 0:
             go_rt.extend([1000]*no_response_go)
+        print('GO omissions for ' + subject + ': ' + str(no_response_go) + ' out of ' + str(total_go_trials) + ' go trials. Replacing with maximum available RT = 1000ms.')
         ordered_go_rt = np.sort(go_rt + early_press_go_rt)
+        assert len(ordered_go_rt) == total_go_trials, f"Length of ordered_go_rt ({len(ordered_go_rt)}) does not match total_go_trials ({total_go_trials})"
         #ordered_go_rt = np.sort((df_maintask[df_maintask['trial_type'] == 'go_trial']['key_resp_experiment.rt'].dropna() *1000).tolist())
         percent_corr_stop = len(
             df_maintask[
@@ -520,9 +522,16 @@ def extract_stats(data):
                     (df_maintask['early_press_resp.corr'] == 0)
                     ] 
                     ) / len(df_maintask[df_maintask['trial_type'] == 'stop_trial'])*100
-        n = round((1 - (percent_corr_stop / 100)) * len(ordered_go_rt))
-        nth_GO_RT = ordered_go_rt[n+1]
+        
         stop_trials = df_maintask[df_maintask['trial_type'] == 'stop_trial']
+        stop_rt = (df_maintask[df_maintask['trial_type'] == 'stop_trial']['key_resp_experiment.rt'].dropna() *1000).tolist()
+        early_press_stop = len(df_maintask[(df_maintask['early_press_resp.corr'] == 1) & (df_maintask['trial_type'] == 'stop_trial')])
+        stop_responses = early_press_stop + len(stop_rt)
+        p_respond_signal = stop_responses / len(stop_trials)
+        print('p(respond|signal) for ' + subject + ': ' + str(p_respond_signal))
+        # n = round((1 - (percent_corr_stop / 100)) * len(ordered_go_rt))
+        n = round(p_respond_signal * len(ordered_go_rt))
+        nth_GO_RT = ordered_go_rt[n-1]    
         mean_ssd = (stop_trials['stop_signal_time'].mean())*1000
         sub_dict['mean SSD (ms)'] = mean_ssd
         ssrt_value = nth_GO_RT - mean_ssd   
